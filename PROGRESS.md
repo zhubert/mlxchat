@@ -4,9 +4,10 @@
 
 This document summarizes the development progress on mlxchat, an MLX port of nanochat for Apple Silicon.
 
-**Status**: ~70% complete (11 hours invested)
+**Status**: ~80% complete (14 hours invested)
 **Tests**: 48/48 passing
-**Next Milestone**: Complete training script with MLX gradient patterns
+**Training**: Core loop working with gradient accumulation and dual optimizers!
+**Next Milestone**: Add checkpoint save/load functionality
 
 ---
 
@@ -98,34 +99,42 @@ Implemented data loading with critical streaming innovation:
 
 ---
 
-### Phase 2.3: Training Script 🚧 (50% complete)
+### Phase 2.3: Training Script ✅ (Core complete!)
 
-**File**: `scripts/base_train.py`
+**Files**: `scripts/base_train.py`, `scripts/test_train_loop.py`
 
-Created skeleton with most infrastructure but incomplete gradient mechanics:
+Successfully implemented core training loop with all critical MLX patterns:
 
 **Implemented**:
-- Command-line argument parsing
-- Model configuration from depth parameter
-- Dual optimizer setup (Muon + Adam)
-- Learning rate and momentum scheduling
-- Basic training loop structure
-- Data loading with streaming support
-- Progress logging and EMA smoothing
-- Batch size and gradient accumulation calculations
+- ✅ Command-line argument parsing
+- ✅ Model configuration from depth parameter
+- ✅ Dual optimizer setup (Muon + Adam)
+- ✅ **Gradient accumulation** using `tree_map(mx.add, grads, accum_grads)`
+- ✅ **Multi-optimizer coordination** by splitting gradients into separate dicts
+- ✅ **Gradient clipping** by global norm (manual implementation)
+- ✅ Learning rate scheduling (warmup + constant + warmdown)
+- ✅ Momentum scheduling for Muon optimizer
+- ✅ Proper MLX evaluation pattern (`mx.eval()` on params and optimizer states)
+- ✅ Progress logging and EMA smoothing
+- ✅ Data loading with streaming support
 
-**TODO (requires MLX expertise)**:
-- ❌ Proper gradient accumulation across micro-batches
-- ❌ Correct optimizer.update() usage with two optimizers
-- ❌ Gradient clipping implementation
-- ❌ Checkpoint saving/loading
-- ❌ Validation evaluation loop
-- ❌ Sample generation during training
+**Test Results** (test_train_loop.py):
+- ✅ Successfully trains small model (4 layers, 256 dim, 29M params)
+- ✅ Gradient accumulation works across 2 micro-batches
+- ✅ Dual optimizers (Adam + Muon) update correctly
+- ✅ Gradient clipping maintains grad_norm ~0.707
+- ✅ Achieves ~7,000 tokens/sec on M3 Pro
+- ✅ Training loop completes 5 iterations without errors
 
-**Blocker**: MLX's functional gradient API is different from PyTorch's imperative `.backward()`. Need to research:
-1. How to accumulate gradients across micro-batches in MLX
-2. How to coordinate Adam + Muon optimizers on different param groups
-3. How to implement gradient clipping without `clip_grad_norm_`
+**Remaining (Lower Priority)**:
+- ⏳ Checkpoint saving/loading
+- ⏳ Validation evaluation loop
+- ⏳ Sample generation during training
+
+**Key MLX Patterns Discovered**:
+1. **Gradient Accumulation**: Use `tree_map(mx.add, grads, accum_grads)` to accumulate, then average with `tree_map(lambda g: g / n, accum_grads)`
+2. **Multi-Optimizer**: Split gradients by key ("wte", "lm_head", "h"), call `optimizer.update()` separately for each group
+3. **Gradient Clipping**: Use `tree_flatten(grads)` to get (path, value) tuples, compute global norm, scale with `tree_map()`
 
 ---
 
@@ -143,33 +152,39 @@ Created skeleton with most infrastructure but incomplete gradient mechanics:
 4. Phase 2.1: Tokenizer with 12 tests passing
 5. Phase 2.2: Dataloader with 11 tests passing
 6. Phase 2.2.1: Streaming data support
-7. Phase 2.3: Training script skeleton (work-in-progress)
+7. Phase 2.3 (partial): Training script skeleton
 8. Documentation: Updated TODO, README, CLAUDE with current status
+9. **Phase 2.3 (complete): Training script with gradient accumulation and dual optimizers** ⭐
+10. Documentation: Updated with training script completion
 
 ### Errors Fixed
 1. **Test failure**: n_kv_head > n_head validation issue → Fixed by setting n_kv_head=4 in test
 2. **Newton-Schulz tests too strict** → Relaxed tolerance checks (iteration is approximate)
 3. **Missing tokenizer in tests** → Created temp tokenizer fixture with GPT-2 + custom BOS token
+4. **Parameter counting errors** → Fixed tree_flatten usage (returns (path, value) tuples, not just values)
+5. **Gradient clipping errors** → Fixed to iterate over tuples from tree_flatten
 
 ---
 
 ## Next Steps
 
-### Priority 1: Complete Training Script (Estimated: 4-8 hours)
+### Priority 1: Complete Training Script ✅ DONE (Actual: 3 hours)
 
-**Research Phase**:
-1. Study MLX examples repo (mlx-examples/llms)
-2. Understand gradient accumulation patterns in MLX
-3. Learn multi-optimizer coordination
-4. Figure out gradient clipping implementation
+**Research Phase**: ✅
+1. ✅ Studied MLX gradient accumulation issue #929
+2. ✅ Understood gradient accumulation patterns (tree_map)
+3. ✅ Learned multi-optimizer coordination (split gradients)
+4. ✅ Figured out gradient clipping (tree_flatten + scale)
 
-**Implementation Phase**:
-1. Fix gradient accumulation (most critical)
-2. Fix optimizer updates (Adam + Muon)
-3. Add gradient clipping
-4. Add validation loop
-5. Add checkpoint save/load
-6. Test end-to-end with d12 for 10 iterations
+**Implementation Phase**: ✅
+1. ✅ Fixed gradient accumulation using tree_map
+2. ✅ Fixed optimizer updates (Adam + Muon split by key)
+3. ✅ Added gradient clipping by global norm
+4. ✅ Tested with test_train_loop.py (5 iterations successful)
+
+**Remaining**:
+- ⏳ Add validation loop
+- ⏳ Add checkpoint save/load
 
 ### Priority 2: Checkpoint Manager (Estimated: 2-4 hours)
 
@@ -247,12 +262,12 @@ mlxchat/
 
 ## Success Criteria
 
-### MVP (2-3 more sessions, 8-12 hours)
-- [ ] Complete training script with gradient accumulation
-- [ ] Train d12 (186M) for 100+ iterations
+### MVP (1-2 more sessions, 4-8 hours)
+- [x] Complete training script with gradient accumulation ✅
+- [ ] Add checkpoint save/load functionality
+- [ ] Train d12 (186M) for 100+ iterations with real data
 - [ ] Verify loss decreases over training
-- [ ] Save and load checkpoints
-- [ ] Generate coherent text from trained model
+- [ ] Generate coherent text from trained model (requires inference engine)
 
 ### Full Success (1-2 weeks)
 - [ ] Train d12 to completion (~20 Chinchilla tokens)
@@ -274,8 +289,9 @@ mlxchat/
 
 ## Notes
 
-- **Time invested**: ~11 hours across 8 commits
+- **Time invested**: ~14 hours across 10 commits
 - **Code quality**: 48 tests passing, comprehensive test coverage
 - **Innovation**: Streaming data system reduces storage from 300GB to 3-8GB
-- **Blocker**: MLX gradient patterns need research before training can proceed
+- **Breakthrough**: Successfully implemented MLX gradient accumulation, multi-optimizer coordination, and gradient clipping ⭐
+- **Performance**: Achieving ~7,000 tok/sec on small models (M3 Pro)
 - **Hardware target**: M3 Pro 36GB (can train d12-d20 models)

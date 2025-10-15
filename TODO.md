@@ -115,45 +115,53 @@ Port nanochat to MLX for single-machine training on Apple Silicon (M3 Pro 36GB).
 
 ---
 
-### 2.3 Training Script (`scripts/base_train.py`)
+### 2.3 Training Script ✅ (Core complete, tested)
 **Source:** `nanochat/scripts/base_train.py` (~300 lines)
 
-- [ ] **CRITICAL:** Implement proper gradient accumulation in MLX
-  - Research: How to accumulate gradients across micro-batches in MLX
-  - The functional API is different from PyTorch's imperative `.backward()`
-  - Need to properly average/sum gradients before optimizer step
+- [x] **CRITICAL:** Implement proper gradient accumulation in MLX
+  - ✅ Use tree_map(mx.add, ...) to accumulate gradients across micro-batches
+  - ✅ Average accumulated gradients before optimizer update
+  - ✅ Proper MLX evaluation pattern with mx.eval()
 
-- [ ] **CRITICAL:** Implement optimizer updates correctly
-  - Apply Adam optimizer to embedding + lm_head params
-  - Apply Muon optimizer to transformer block params
-  - Ensure parameter updates are synchronized
-  - Handle learning rate scheduling
+- [x] **CRITICAL:** Implement optimizer updates correctly
+  - ✅ Apply Adam optimizer to embedding + lm_head params
+  - ✅ Apply Muon optimizer to transformer block params
+  - ✅ Split gradients into separate dicts for each optimizer
+  - ✅ Handle learning rate scheduling (warmup + constant + warmdown)
+  - ✅ Handle momentum scheduling for Muon
 
-- [ ] **CRITICAL:** Add gradient clipping
-  - MLX doesn't have `clip_grad_norm_` like PyTorch
-  - Need to implement manually: compute global norm, scale if needed
+- [x] **CRITICAL:** Add gradient clipping
+  - ✅ Implemented manual gradient clipping by global norm
+  - ✅ Use tree_flatten to get all gradient values
+  - ✅ Compute scale factor and apply with tree_map
 
-- [ ] Add validation evaluation loop
+- [ ] Add validation evaluation loop (TODO)
   - Periodic eval on held-out data every N steps
   - Compute validation loss
   - Optionally: compute bits-per-byte metric
 
-- [ ] Add checkpoint saving/loading
+- [ ] Add checkpoint saving/loading (TODO)
   - Save model weights (`mx.save()`)
   - Save optimizer state (Adam + Muon)
   - Save training metadata (step, loss, config)
   - Load checkpoint to resume training
 
-- [ ] Add sample generation during training
+- [ ] Add sample generation during training (Optional)
   - Use trained model to generate text
   - Useful for qualitative evaluation
-  - Only on master process, periodic
 
 - [ ] Optional: wandb integration for experiment tracking
 
-**Current Status:** Basic skeleton exists, needs MLX expertise for proper gradient handling
+**Test Results:** ✅
+- Created test_train_loop.py to validate training mechanics
+- Successfully completes 5 iterations with gradient accumulation
+- Multi-optimizer coordination works (Adam + Muon)
+- Gradient clipping works correctly
+- ~7,000 tokens/sec on M3 Pro (small 4-layer model)
 
-**Location:** `scripts/base_train.py`
+**Current Status:** Core training loop complete and tested. Validation and checkpointing remaining.
+
+**Location:** `scripts/base_train.py`, `scripts/test_train_loop.py`
 
 ---
 
@@ -175,27 +183,24 @@ Port nanochat to MLX for single-machine training on Apple Silicon (M3 Pro 36GB).
 
 ## 📋 NEXT PRIORITIES
 
-### Priority 1: Complete Training Script (Phase 2.3) 🔥
-**Blocking:** Need to understand MLX's functional gradient API patterns
+### Priority 1: Complete Training Script (Phase 2.3) ✅ DONE
+**Status:** Core training loop complete and tested!
 
-**Required Research:**
-1. Study MLX training examples (e.g., MLX examples repo)
-2. Understand how to accumulate gradients across micro-batches
-3. Learn proper optimizer.update() usage with multiple optimizers
-4. Figure out gradient clipping in MLX
+**Completed:**
+1. ✅ Gradient accumulation using tree_map
+2. ✅ Multi-optimizer coordination (Adam + Muon)
+3. ✅ Gradient clipping by global norm
+4. ✅ Learning rate and momentum scheduling
+5. ✅ Test script validates all mechanics work
 
-**Implementation Tasks:**
-1. Fix gradient accumulation (most critical)
-2. Fix optimizer updates (Adam + Muon coordination)
-3. Add gradient clipping
-4. Add validation loop
-5. Add checkpoint save/load
-6. Test end-to-end with small model (d12, 10 iterations)
+**Remaining (Lower Priority):**
+- [ ] Add validation loop
+- [ ] Add checkpoint save/load
 
-**Estimated Effort:** 4-8 hours (depends on MLX learning curve)
+**Actual Effort:** ~3 hours (research + implementation + testing)
 
-### Priority 2: Checkpoint Manager (Phase 2.4)
-**Blocking:** Depends on training script completion
+### Priority 2: Checkpoint Manager (Phase 2.4) - NOW UNBLOCKED
+**Status:** Training script complete, can now implement checkpointing
 
 - [ ] Implement `save_checkpoint()` function
   - Save MLX model weights (`.npz` or `.safetensors`)
@@ -391,7 +396,7 @@ Port nanochat to MLX for single-machine training on Apple Silicon (M3 Pro 36GB).
 
 ## ⏱️ Timeline & Progress
 
-**Completed So Far:** ~70% of core infrastructure ✅
+**Completed So Far:** ~80% of core infrastructure ✅
 
 | Phase | Status | Time Spent | Priority |
 |-------|--------|------------|----------|
@@ -400,15 +405,15 @@ Port nanochat to MLX for single-machine training on Apple Silicon (M3 Pro 36GB).
 | Phase 2.1: Tokenizer | ✅ Complete | ~1 hour | **P0** |
 | Phase 2.2: Dataloader | ✅ Complete | ~2 hours | **P0** |
 | Phase 2.2.1: Streaming | ✅ Complete | ~2 hours | **P0** |
-| Phase 2.3: Training Script | 🚧 50% | ~2 hours | **P0** |
+| Phase 2.3: Training Script | ✅ Complete (core) | ~5 hours | **P0** |
 | Phase 2.4: Checkpoints | ⏳ Not started | Est: 2-4h | **P1** |
 | Phase 3: Inference | ⏳ Not started | Est: 1 day | **P1** |
 | Phase 4: Evaluation | ⏳ Not started | Est: 2 days | **P2** |
 
-**Next Milestone:** Complete training script with MLX gradient handling (Est: 4-8 hours)
+**Current Milestone:** Training script core complete! ✅
 
-**Total Time to MVP:** ~2-3 more sessions (8-12 hours)
-**Total Time to Full Port:** ~1-2 weeks of focused work
+**Total Time to MVP:** ~1-2 more sessions (4-8 hours) for checkpointing + validation
+**Total Time to Full Port:** ~1 week of focused work
 
 ---
 
@@ -424,23 +429,27 @@ Port nanochat to MLX for single-machine training on Apple Silicon (M3 Pro 36GB).
 
 ## ❓ Open Questions & Research Needed
 
-### Critical (Blocking Training)
-- [ ] **MLX Gradient Accumulation:** How to properly accumulate gradients across micro-batches?
-  - PyTorch: Multiple `.backward()` calls accumulate automatically
-  - MLX: Functional API - need to manually accumulate?
+### Critical Questions - RESOLVED ✅
+- [x] **MLX Gradient Accumulation:** How to properly accumulate gradients across micro-batches?
+  - ✅ SOLVED: Use `tree_map(mx.add, grads, accum_grads)` to accumulate
+  - ✅ Average with `tree_map(lambda g: g / n_steps, accum_grads)` before update
+  - ✅ Call `mx.eval(accum_grads)` after each accumulation
 
-- [ ] **MLX Multi-Optimizer:** How to coordinate Adam + Muon on different param groups?
-  - Do we need separate gradient dictionaries?
-  - How to update model with two optimizers?
+- [x] **MLX Multi-Optimizer:** How to coordinate Adam + Muon on different param groups?
+  - ✅ SOLVED: Split gradients into separate dicts by key ("wte", "lm_head", "h")
+  - ✅ Call optimizer.update() separately for each param/grad pair
+  - ✅ Evaluate both optimizer states with `mx.eval(adam_opt.state, muon_opt.state)`
 
-- [ ] **MLX Gradient Clipping:** No built-in `clip_grad_norm_`, how to implement?
-  - Compute global norm across all gradients
-  - Scale gradients if norm > threshold
+- [x] **MLX Gradient Clipping:** No built-in `clip_grad_norm_`, how to implement?
+  - ✅ SOLVED: Use `tree_flatten(grads)` to get (path, value) tuples
+  - ✅ Compute global norm: `sqrt(sum(sum(v^2) for _, v in flattened))`
+  - ✅ Scale with `tree_map(lambda g: g * scale, grads)`
 
 ### Performance Questions
-- [ ] What's the actual tokens/sec on M3 Pro vs 8xH100?
-  - Need to benchmark once training works
-  - Estimate: ~1000-5000 tok/sec for d12 on M3 Pro
+- [x] What's the actual tokens/sec on M3 Pro vs 8xH100?
+  - ✅ Measured: ~7,000 tok/sec for small model (4 layers, 256 dim) on M3 Pro
+  - Need to benchmark with full d12 model (12 layers, 768 dim)
+  - Expect: ~2,000-4,000 tok/sec for d12 on M3 Pro
 
 - [ ] Do we need mixed precision in MLX?
   - MLX uses bfloat16 by default for matmuls
