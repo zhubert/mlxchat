@@ -182,6 +182,7 @@ def get_tokenizer(tokenizer_dir=None):
     Get the mlxchat tokenizer.
 
     By default, looks for nanochat's tokenizer in ~/.cache/nanochat/tokenizer.
+    If not found, falls back to tiktoken's GPT-2 tokenizer (vocab_size=50257).
     You can override this by providing a custom tokenizer_dir.
 
     Args:
@@ -195,4 +196,14 @@ def get_tokenizer(tokenizer_dir=None):
         home = os.path.expanduser("~")
         tokenizer_dir = os.path.join(home, ".cache", "nanochat", "tokenizer")
 
-    return Tokenizer.from_directory(tokenizer_dir)
+    # Try to load nanochat's trained tokenizer
+    pickle_path = os.path.join(tokenizer_dir, "tokenizer.pkl")
+    if os.path.exists(pickle_path):
+        return Tokenizer.from_directory(tokenizer_dir)
+
+    # Fallback to tiktoken's GPT-2 tokenizer
+    print(f"Warning: Nanochat tokenizer not found at {pickle_path}")
+    print(f"Falling back to tiktoken's GPT-2 tokenizer (vocab_size=50257)")
+    print(f"Note: This is fine for testing, but for production training you should")
+    print(f"train a custom tokenizer with nanochat's tok_train.py script.")
+    return Tokenizer.from_pretrained("gpt2")

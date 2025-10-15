@@ -88,12 +88,28 @@ def get_model_config(depth, max_seq_len, vocab_size):
     )
 
 
+def flatten_params(tree, prefix=""):
+    """Flatten nested parameter dict into list of (name, param) tuples."""
+    items = []
+    if isinstance(tree, dict):
+        for k, v in tree.items():
+            new_prefix = f"{prefix}.{k}" if prefix else k
+            items.extend(flatten_params(v, new_prefix))
+    elif isinstance(tree, list):
+        for i, v in enumerate(tree):
+            new_prefix = f"{prefix}.{i}" if prefix else str(i)
+            items.extend(flatten_params(v, new_prefix))
+    elif isinstance(tree, mx.array):
+        items.append((prefix, tree))
+    return items
+
+
 def setup_optimizers(model, config, args):
     """
     Setup dual optimizer system: Muon for matrices, Adam for embeddings/lm_head.
 
     Returns:
-        tuple: (adam_optimizer, muon_optimizer)
+        tuple: (adam_optimizer, muon_optimizer, param_groups)
     """
     model_dim = config.n_embd
 
@@ -101,32 +117,32 @@ def setup_optimizers(model, config, args):
     dmodel_lr_scale = (model_dim / 768) ** -0.5
     print(f"LR scaling factor (∝1/√(d/{768})): {dmodel_lr_scale:.6f}")
 
-    # Separate parameters into groups
-    matrix_params = []
-    embedding_params = []
-    lm_head_params = []
+    # Flatten parameters with names
+    all_params = flatten_params(model.parameters())
 
-    for name, param in model.named_parameters():
-        if "wte" in name:
-            embedding_params.append(param)
-        elif "lm_head" in name:
-            lm_head_params.append(param)
+    # Separate parameters into groups
+    matrix_params = {}
+    embedding_params = {}
+    lm_head_params = {}
+
+    for name, param in all_params:
+        if name.startswith("wte"):
+            embedding_params[name] = param
+        elif name.startswith("lm_head"):
+            lm_head_params[name] = param
         else:
             # All transformer block parameters
-            matrix_params.append(param)
+            matrix_params[name] = param
 
     print(f"Matrix params: {len(matrix_params)}")
     print(f"Embedding params: {len(embedding_params)}")
     print(f"LM head params: {len(lm_head_params)}")
 
     # Create Adam optimizer for embeddings and LM head
+    adam_params = {**embedding_params, **lm_head_params}
     adam_optimizer = optim.Adam(
         learning_rate=args.unembedding_lr * dmodel_lr_scale,
     )
-    adam_optimizer.init({
-        **{f"wte_{i}": p for i, p in enumerate(embedding_params)},
-        **{f"lm_head_{i}": p for i, p in enumerate(lm_head_params)},
-    })
 
     # Create Muon optimizer for transformer blocks
     muon_optimizer = Muon(
@@ -135,9 +151,14 @@ def setup_optimizers(model, config, args):
         nesterov=True,
         ns_steps=5,
     )
-    muon_optimizer.init({f"matrix_{i}": p for i, p in enumerate(matrix_params)})
 
-    return adam_optimizer, muon_optimizer, (embedding_params, lm_head_params, matrix_params)
+    # Return param groups for applying gradients later
+    param_groups = {
+        "adam": adam_params,
+        "muon": matrix_params,
+    }
+
+    return adam_optimizer, muon_optimizer, param_groups
 
 
 def get_lr_multiplier(step, num_iterations, warmup_ratio=0.0, warmdown_ratio=0.2, final_lr_frac=0.0):
@@ -256,8 +277,20 @@ def main():
     model = GPT(config)
     model.init_weights()
 
-    # Count parameters
-    num_params = sum(p.size for p in model.parameters().values())
+    # Count parameters (flatten nested dict structure)
+    def count_params(tree):
+        total = 0
+        if isinstance(tree, dict):
+            for v in tree.values():
+                total += count_params(v)
+        elif isinstance(tree, list):
+            for v in tree:
+                total += count_params(v)
+        elif isinstance(tree, mx.array):
+            total += tree.size
+        return total
+
+    num_params = count_params(model.parameters())
     print(f"Number of parameters: {num_params:,}")
 
     # Calculate training horizon
@@ -300,7 +333,9 @@ def main():
     # Setup optimizers
     print(f"\nSetting up optimizers...")
     adam_opt, muon_opt, param_groups = setup_optimizers(model, config, args)
-    embedding_params, lm_head_params, matrix_params = param_groups
+    # param_groups is a dict with "adam" and "muon" keys
+    adam_params = param_groups["adam"]
+    muon_params = param_groups["muon"]
 
     # Setup dataloaders
     print(f"\nSetting up dataloaders...")

@@ -11,12 +11,49 @@ An MLX port of [nanochat](https://github.com/karpathy/nanochat), optimized for A
 - **Single Machine**: No distributed training complexity - just one computer
 - **Same Architecture**: Identical GPT model to nanochat (RoPE, QK norm, MQA, ReLU²)
 
-## Quick Start
+## Installation
+
+### Using uv (Recommended)
+
+[uv](https://github.com/astral-sh/uv) is a fast Python package installer and resolver. It works seamlessly with this project:
 
 ```bash
+# Install uv if you don't have it
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install dependencies
+uv pip install -e .
+
+# Or install with dev dependencies
+uv pip install -e ".[dev]"
+
+# Run commands using uv (creates virtual env automatically)
+uv run python -m scripts.base_train --depth=12 --streaming
+```
+
+**Why uv?**
+- 10-100x faster than pip for dependency resolution
+- Built-in virtual environment management
+- Drop-in replacement for pip (works with existing `pyproject.toml`)
+- No changes needed to the project structure
+
+### Using pip
+
+```bash
+# Create a virtual environment (recommended)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
 # Install dependencies
 pip install -e .
 
+# Or with dev dependencies
+pip install -e ".[dev]"
+```
+
+## Quick Start
+
+```bash
 # Option 1: Streaming mode (recommended for limited storage)
 # Downloads shards on-demand, keeps only 20 shards cached (~3GB)
 python -m scripts.base_train --depth=12 --streaming
