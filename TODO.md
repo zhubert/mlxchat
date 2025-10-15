@@ -115,7 +115,7 @@ Port nanochat to MLX for single-machine training on Apple Silicon (M3 Pro 36GB).
 
 ---
 
-### 2.3 Training Script ✅ (Core complete, tested)
+### 2.3 Training Script ✅ (COMPLETE - all features working)
 **Source:** `nanochat/scripts/base_train.py` (~300 lines)
 
 - [x] **CRITICAL:** Implement proper gradient accumulation in MLX
@@ -135,16 +135,18 @@ Port nanochat to MLX for single-machine training on Apple Silicon (M3 Pro 36GB).
   - ✅ Use tree_flatten to get all gradient values
   - ✅ Compute scale factor and apply with tree_map
 
-- [ ] Add validation evaluation loop (TODO)
-  - Periodic eval on held-out data every N steps
-  - Compute validation loss
-  - Optionally: compute bits-per-byte metric
+- [x] Add validation evaluation loop
+  - ✅ Periodic eval on held-out data every N steps (--eval-every flag)
+  - ✅ Compute validation loss
+  - ✅ Track best validation loss
+  - ✅ Evaluation runs in eval mode (no gradients)
 
-- [ ] Add checkpoint saving/loading (TODO)
-  - Save model weights (`mx.save()`)
-  - Save optimizer state (Adam + Muon)
-  - Save training metadata (step, loss, config)
-  - Load checkpoint to resume training
+- [x] Add checkpoint saving/loading
+  - ✅ Save model weights (mx.savez to .npz)
+  - ✅ Save optimizer state (Adam + Muon)
+  - ✅ Save training metadata (step, loss, config)
+  - ✅ Periodic checkpoint saving (--save-every flag)
+  - ✅ Automatic checkpoint directory setup
 
 - [ ] Add sample generation during training (Optional)
   - Use trained model to generate text
@@ -157,27 +159,40 @@ Port nanochat to MLX for single-machine training on Apple Silicon (M3 Pro 36GB).
 - Successfully completes 5 iterations with gradient accumulation
 - Multi-optimizer coordination works (Adam + Muon)
 - Gradient clipping works correctly
+- Checkpoint save/load verified
 - ~7,000 tokens/sec on M3 Pro (small 4-layer model)
 
-**Current Status:** Core training loop complete and tested. Validation and checkpointing remaining.
+**Current Status:** COMPLETE - Full training system with validation and checkpointing!
 
 **Location:** `scripts/base_train.py`, `scripts/test_train_loop.py`
 
 ---
 
-### 2.4 Checkpoint Manager (`mlxchat/checkpoint_manager.py`)
+### 2.4 Checkpoint Manager ✅ (COMPLETE - 4 tests passing)
 **Source:** `nanochat/checkpoint_manager.py`
 
-- [ ] Implement `save_checkpoint()`
-  - [ ] Save MLX model weights (`.npz` format)
-  - [ ] Save optimizer state
-  - [ ] Save metadata (step, loss, config)
-- [ ] Implement `load_checkpoint()`
-  - [ ] Load weights into model
-  - [ ] Load optimizer state
-  - [ ] Return metadata
-- [ ] Support multiple checkpoints (base, mid, sft, rl)
-- [ ] Test: Save and load round-trip
+- [x] Implement `save_checkpoint()`
+  - ✅ Save MLX model weights (`.npz` format with flattened parameters)
+  - ✅ Save optimizer state (supports multiple optimizers)
+  - ✅ Save metadata (step, loss, config as JSON)
+- [x] Implement `load_checkpoint()`
+  - ✅ Load weights into model
+  - ✅ Load optimizer state
+  - ✅ Return metadata
+  - ✅ Unflatten nested structures (dicts + lists)
+- [x] Support multiple checkpoints (base, mid, sft, rl)
+- [x] Test: Save and load round-trip (4 comprehensive tests)
+- [x] Utilities: flatten_dict(), unflatten_dict(), find_last_step(), find_largest_model()
+
+**Test Results:** ✅
+- test_flatten_unflatten_dict: Handles nested dicts and lists
+- test_save_and_load_checkpoint: Full save/load with optimizers
+- test_find_last_step: Finds most recent checkpoint
+- test_save_checkpoint_without_optimizer: Saves model only
+
+**Current Status:** COMPLETE - Integrated into training script!
+
+**Location:** `mlxchat/checkpoint_manager.py`, `tests/test_checkpoint.py`
 
 ---
 
@@ -396,7 +411,7 @@ Port nanochat to MLX for single-machine training on Apple Silicon (M3 Pro 36GB).
 
 ## ⏱️ Timeline & Progress
 
-**Completed So Far:** ~80% of core infrastructure ✅
+**Completed So Far:** ~90% of core infrastructure ✅
 
 | Phase | Status | Time Spent | Priority |
 |-------|--------|------------|----------|
@@ -405,15 +420,15 @@ Port nanochat to MLX for single-machine training on Apple Silicon (M3 Pro 36GB).
 | Phase 2.1: Tokenizer | ✅ Complete | ~1 hour | **P0** |
 | Phase 2.2: Dataloader | ✅ Complete | ~2 hours | **P0** |
 | Phase 2.2.1: Streaming | ✅ Complete | ~2 hours | **P0** |
-| Phase 2.3: Training Script | ✅ Complete (core) | ~5 hours | **P0** |
-| Phase 2.4: Checkpoints | ⏳ Not started | Est: 2-4h | **P1** |
+| Phase 2.3: Training Script | ✅ Complete | ~6 hours | **P0** |
+| Phase 2.4: Checkpoints | ✅ Complete | ~3 hours | **P0** |
 | Phase 3: Inference | ⏳ Not started | Est: 1 day | **P1** |
 | Phase 4: Evaluation | ⏳ Not started | Est: 2 days | **P2** |
 
-**Current Milestone:** Training script core complete! ✅
+**Current Milestone:** Full training system complete! Ready for real training runs ✅
 
-**Total Time to MVP:** ~1-2 more sessions (4-8 hours) for checkpointing + validation
-**Total Time to Full Port:** ~1 week of focused work
+**Total Time to MVP:** Ready NOW! Can train models end-to-end
+**Total Time to Full Port:** ~3-4 days for inference + chat + evaluation
 
 ---
 

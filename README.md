@@ -25,12 +25,14 @@ python -m scripts.base_train --depth=12 --streaming
 # Download first 50 shards (~8GB)
 python -m mlxchat.dataset --num-shards 50
 
-# Train a small model (d12, 186M params)
-# Core training loop works! Validation and checkpointing coming soon.
-python -m scripts.base_train --depth=12 --device_batch_size=4
+# Train a small model (d12, 186M params) with checkpointing
+python -m scripts.base_train --depth=12 --device_batch_size=4 --save-every=1000
 
-# Test training loop with dummy data
+# Test training loop with dummy data (includes checkpoint test)
 python scripts/test_train_loop.py
+
+# Train with streaming data (no pre-download needed)
+python -m scripts.base_train --depth=12 --streaming --max-cached-shards=20
 
 # Chat with your model (coming soon)
 # python -m scripts.chat_cli
@@ -49,19 +51,19 @@ Recommended for M3 Pro 36GB:
 
 ## Project Status
 
-**~80% Complete** - Core training infrastructure complete and tested!
+**~90% Complete** - Full training system with checkpointing and validation!
 
 - [x] Phase 1.1: GPT Model (14 tests passing)
 - [x] Phase 1.2: Muon Optimizer (11 tests passing)
 - [x] Phase 2.1: Tokenizer (12 tests passing)
 - [x] Phase 2.2: Dataloader with Streaming (11 tests passing)
-- [x] Phase 2.3: Training Script (core complete - gradient accumulation, multi-optimizer, clipping)
-- [ ] Phase 2.4: Checkpoint Manager
+- [x] Phase 2.3: Training Script (complete - gradient accumulation, multi-optimizer, clipping, validation)
+- [x] Phase 2.4: Checkpoint Manager (4 tests passing)
 - [ ] Phase 3: Inference & UI (chat CLI, web interface)
 
-**Latest**: Training loop working! Successfully tested with gradient accumulation, dual optimizers (Adam + Muon), and gradient clipping. Achieving ~7K tok/sec on small models.
+**Latest**: Complete training system ready! Training loop, checkpointing, and validation all working. Successfully saves/loads model and optimizer states. Achieving ~7K tok/sec on small models.
 
-**Next Milestone**: Add checkpoint save/load functionality
+**Next Milestone**: Implement inference engine with KV cache for text generation
 
 ## Data Management for Limited Storage
 
