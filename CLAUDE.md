@@ -209,12 +209,26 @@ Handle tall vs wide matrices by transposing before iteration.
 
 ## Project Status
 
-This is an **early-stage port** - the project structure is defined but most code is not yet implemented. See TODO.md for detailed implementation phases:
+**~70% Complete** - Core infrastructure is implemented and tested. See TODO.md for detailed status.
 
-- **Phase 1** (Week 1): Core model (GPT, Muon optimizer)
-- **Phase 2** (Week 2): Training infrastructure (data loading, training loop)
-- **Phase 3** (Week 3): Inference & chat UI
-- **Phase 4** (Week 4): Evaluation & fine-tuning
+**Completed:**
+- ✅ Phase 1.1: GPT Model (mlxchat/gpt.py, 14 tests passing)
+- ✅ Phase 1.2: Muon Optimizer (mlxchat/muon.py, 11 tests passing)
+- ✅ Phase 2.1: Tokenizer (mlxchat/tokenizer.py, 12 tests passing)
+- ✅ Phase 2.2: Dataloader with Streaming (mlxchat/dataloader.py + dataset.py, 11 tests passing)
+
+**In Progress:**
+- 🚧 Phase 2.3: Training Script (scripts/base_train.py) - needs MLX gradient patterns
+  - Critical blocker: Gradient accumulation across micro-batches
+  - Critical blocker: Multi-optimizer coordination (Adam + Muon)
+  - Critical blocker: Gradient clipping implementation
+
+**Not Started:**
+- ⏳ Phase 2.4: Checkpoint Manager
+- ⏳ Phase 3: Inference & chat UI
+- ⏳ Phase 4: Evaluation & fine-tuning
+
+**Next Milestone:** Complete training script to successfully train d12 for 100+ iterations
 
 ## Implementation Guidelines
 
@@ -246,8 +260,50 @@ This is an **early-stage port** - the project structure is defined but most code
 2. **Batch size**: Adjust `device_batch_size` based on available RAM (start small)
 3. **Gradient accumulation**: Use this instead of distributed training for effective large batch sizes
 4. **Tokenizer paths**: Ensure `~/.cache/nanochat/tokenizer` exists or download from nanochat
-5. **Data shards**: Download FineWeb shards using nanochat's data download script first
+5. **Data shards**: Use streaming mode (`--streaming`) or pre-download shards (`python -m mlxchat.dataset`)
 6. **Causal masking**: Must implement manually, no MLX equivalent to PyTorch's built-in attention
+
+## MLX Training Patterns (Research Needed)
+
+The training script (scripts/base_train.py) is incomplete due to gaps in MLX knowledge. These patterns need research:
+
+### Gradient Accumulation
+PyTorch accumulates gradients automatically across multiple `.backward()` calls:
+```python
+# PyTorch pattern
+for micro_step in range(grad_accum_steps):
+    loss = model(x, y)
+    loss.backward()  # Gradients accumulate in .grad
+optimizer.step()
+optimizer.zero_grad()
+```
+
+MLX uses a functional API with `mx.grad()`. How to accumulate? Options:
+1. Call `mx.grad()` multiple times and sum gradient dictionaries manually?
+2. Use `mx.compile()` with gradient accumulation built into the function?
+3. Average losses first, then take single gradient?
+
+### Multi-Optimizer Coordination
+Need to apply two optimizers to different parameter groups:
+- Adam optimizer → embeddings + lm_head
+- Muon optimizer → transformer blocks
+
+Questions:
+1. Do we compute separate gradient dictionaries for each optimizer?
+2. How to update the model with results from two optimizers?
+3. Can we use a single `mx.grad()` call and split the gradients?
+
+### Gradient Clipping
+PyTorch has `torch.nn.utils.clip_grad_norm_()` but MLX doesn't. Need to:
+1. Compute global norm: `sqrt(sum(||g||^2))` across all gradients
+2. Scale all gradients by `min(1, clip_value / global_norm)`
+3. Apply scaled gradients with optimizer
+
+### Recommended Approach
+1. Study MLX examples repo for training patterns
+2. Look at mlx-examples/llms for transformer training
+3. Search MLX docs for gradient accumulation examples
+4. Test with small model (d12) and few iterations before full training
 
 ## Resources
 

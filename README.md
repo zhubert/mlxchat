@@ -26,10 +26,11 @@ python -m scripts.base_train --depth=12 --streaming
 python -m mlxchat.dataset --num-shards 50
 
 # Train a small model (d12, 186M params)
+# NOTE: Training script is work-in-progress, see TODO.md for status
 python -m scripts.base_train --depth=12 --device_batch_size=4
 
-# Chat with your model
-python -m scripts.chat_cli
+# Chat with your model (coming soon)
+# python -m scripts.chat_cli
 ```
 
 ## Model Sizes
@@ -45,9 +46,17 @@ Recommended for M3 Pro 36GB:
 
 ## Project Status
 
-- [ ] Phase 1: Core Model (GPT, Muon optimizer)
-- [ ] Phase 2: Training Loop (data loading, training script)
+**~70% Complete** - Core infrastructure ready, training script needs MLX gradient patterns
+
+- [x] Phase 1.1: GPT Model (14 tests passing)
+- [x] Phase 1.2: Muon Optimizer (11 tests passing)
+- [x] Phase 2.1: Tokenizer (12 tests passing)
+- [x] Phase 2.2: Dataloader with Streaming (11 tests passing)
+- [ ] Phase 2.3: Training Script (in progress - needs gradient accumulation)
+- [ ] Phase 2.4: Checkpoint Manager
 - [ ] Phase 3: Inference & UI (chat CLI, web interface)
+
+**Next Milestone**: Complete training script to train d12 for 100+ iterations
 
 ## Data Management for Limited Storage
 

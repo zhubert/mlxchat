@@ -8,12 +8,10 @@ Port nanochat to MLX for single-machine training on Apple Silicon (M3 Pro 36GB).
 
 ---
 
-## Phase 1: Core Model (Week 1) 🎯
+## ✅ COMPLETED PHASES
 
-### 1.1 GPT Model (`mlxchat/gpt.py`)
-**Source:** `nanochat/gpt.py` (323 lines)
-
-- [ ] Create `GPTConfig` dataclass
+### Phase 1.1: GPT Model ✅ (14 tests passing)
+- [x] Create `GPTConfig` dataclass
 - [ ] Implement `norm()` function (RMSNorm without learnable params)
 - [ ] Implement `apply_rotary_emb()` for RoPE
 - [ ] Implement `repeat_kv()` for Multi-Query Attention
@@ -120,38 +118,42 @@ Port nanochat to MLX for single-machine training on Apple Silicon (M3 Pro 36GB).
 ### 2.3 Training Script (`scripts/base_train.py`)
 **Source:** `nanochat/scripts/base_train.py` (~300 lines)
 
-- [ ] Port configuration system
-  - [ ] Model architecture (depth → n_layer, n_embd, n_head)
-  - [ ] Training hyperparameters
-  - [ ] Batch size and gradient accumulation
-- [ ] Initialize model
-  - [ ] Create GPT with config
-  - [ ] Initialize weights
-- [ ] Setup optimizers
-  - [ ] Muon for transformer blocks
-  - [ ] Adam for embeddings/lm_head
-  - [ ] Learning rates with scaling
-- [ ] Training loop
-  - [ ] Forward pass (compute loss)
-  - [ ] Backward pass (MLX auto-differentiation)
-  - [ ] Gradient accumulation
-  - [ ] Optimizer step
-  - [ ] Logging (loss, tokens/sec)
-- [ ] Checkpoint saving
-  - [ ] Save model weights
-  - [ ] Save optimizer state
-  - [ ] Save training metadata
-- [ ] Validation evaluation
-  - [ ] Periodic eval on held-out data
-  - [ ] Compute bits-per-byte
-- [ ] Integration with wandb (optional)
-- [ ] Test: Train for 10 steps on dummy data
+- [ ] **CRITICAL:** Implement proper gradient accumulation in MLX
+  - Research: How to accumulate gradients across micro-batches in MLX
+  - The functional API is different from PyTorch's imperative `.backward()`
+  - Need to properly average/sum gradients before optimizer step
 
-**Key differences:**
-- Remove `torchrun` wrapper
-- Remove DDP sync points
-- Use MLX's `mx.grad()` for backprop
-- Single device (no device_id management)
+- [ ] **CRITICAL:** Implement optimizer updates correctly
+  - Apply Adam optimizer to embedding + lm_head params
+  - Apply Muon optimizer to transformer block params
+  - Ensure parameter updates are synchronized
+  - Handle learning rate scheduling
+
+- [ ] **CRITICAL:** Add gradient clipping
+  - MLX doesn't have `clip_grad_norm_` like PyTorch
+  - Need to implement manually: compute global norm, scale if needed
+
+- [ ] Add validation evaluation loop
+  - Periodic eval on held-out data every N steps
+  - Compute validation loss
+  - Optionally: compute bits-per-byte metric
+
+- [ ] Add checkpoint saving/loading
+  - Save model weights (`mx.save()`)
+  - Save optimizer state (Adam + Muon)
+  - Save training metadata (step, loss, config)
+  - Load checkpoint to resume training
+
+- [ ] Add sample generation during training
+  - Use trained model to generate text
+  - Useful for qualitative evaluation
+  - Only on master process, periodic
+
+- [ ] Optional: wandb integration for experiment tracking
+
+**Current Status:** Basic skeleton exists, needs MLX expertise for proper gradient handling
+
+**Location:** `scripts/base_train.py`
 
 ---
 
@@ -171,7 +173,55 @@ Port nanochat to MLX for single-machine training on Apple Silicon (M3 Pro 36GB).
 
 ---
 
-## Phase 3: Inference & Chat (Week 3) 💬
+## 📋 NEXT PRIORITIES
+
+### Priority 1: Complete Training Script (Phase 2.3) 🔥
+**Blocking:** Need to understand MLX's functional gradient API patterns
+
+**Required Research:**
+1. Study MLX training examples (e.g., MLX examples repo)
+2. Understand how to accumulate gradients across micro-batches
+3. Learn proper optimizer.update() usage with multiple optimizers
+4. Figure out gradient clipping in MLX
+
+**Implementation Tasks:**
+1. Fix gradient accumulation (most critical)
+2. Fix optimizer updates (Adam + Muon coordination)
+3. Add gradient clipping
+4. Add validation loop
+5. Add checkpoint save/load
+6. Test end-to-end with small model (d12, 10 iterations)
+
+**Estimated Effort:** 4-8 hours (depends on MLX learning curve)
+
+### Priority 2: Checkpoint Manager (Phase 2.4)
+**Blocking:** Depends on training script completion
+
+- [ ] Implement `save_checkpoint()` function
+  - Save MLX model weights (`.npz` or `.safetensors`)
+  - Save optimizer state (both Adam and Muon)
+  - Save metadata (step, loss, config, etc.)
+
+- [ ] Implement `load_checkpoint()` function
+  - Load weights into model
+  - Load optimizer state
+  - Return metadata for resuming training
+
+- [ ] Support multiple checkpoint types
+  - Base model checkpoints
+  - Mid-training checkpoints (if doing RL later)
+
+- [ ] Test: Save → Load → Resume training
+
+**Location:** `mlxchat/checkpoint_manager.py` (new file)
+
+**Estimated Effort:** 2-4 hours
+
+---
+
+## 🔮 FUTURE PHASES
+
+### Phase 3: Inference & Chat (Week 3-4) 💬
 
 ### 3.1 KV Cache (`mlxchat/engine.py`)
 **Source:** `nanochat/engine.py` (344 lines)
@@ -266,19 +316,20 @@ Port nanochat to MLX for single-machine training on Apple Silicon (M3 Pro 36GB).
 
 ---
 
-## Testing & Validation ✅
+## ✅ Testing & Validation
 
-### Unit Tests
-- [ ] `tests/test_gpt.py` - Model forward/backward passes
-- [ ] `tests/test_muon.py` - Optimizer convergence
-- [ ] `tests/test_tokenizer.py` - Encode/decode
-- [ ] `tests/test_dataloader.py` - Batch loading
-- [ ] `tests/test_engine.py` - KV cache and generation
+### Unit Tests (48 tests passing)
+- [x] `tests/test_gpt.py` - Model forward/backward passes (14 tests)
+- [x] `tests/test_muon.py` - Optimizer convergence (11 tests)
+- [x] `tests/test_tokenizer.py` - Encode/decode (12 tests)
+- [x] `tests/test_dataloader.py` - Batch loading (11 tests)
+- [ ] `tests/test_engine.py` - KV cache and generation (Phase 3)
 
-### Integration Tests
-- [ ] Train d12 for 100 steps, verify loss decreases
-- [ ] Generate coherent text from trained model
-- [ ] Compare MLX outputs to PyTorch nanochat (same init)
+### Integration Tests (TODO)
+- [ ] Train d12 for 10 iterations, verify loss decreases
+- [ ] Train d12 for 100 iterations, save/load checkpoint
+- [ ] Generate text from trained model
+- [ ] Compare MLX vs PyTorch outputs (optional, for validation)
 
 ---
 
@@ -320,35 +371,44 @@ Port nanochat to MLX for single-machine training on Apple Silicon (M3 Pro 36GB).
 
 ---
 
-## Success Criteria 🎯
+## 🎯 Success Criteria
 
 **Minimum Viable Product (MVP):**
-1. ✅ Train d12 (186M) model on MacBook M3 Pro
-2. ✅ Achieve similar loss curve to nanochat
-3. ✅ Generate coherent text
-4. ✅ Chat via CLI
+1. [ ] Train d12 (186M) model for 100+ iterations ← **NEXT MILESTONE**
+2. [ ] Verify loss decreases over training
+3. [ ] Save and load checkpoints
+4. [ ] Generate coherent text from trained model
+5. [ ] Chat via CLI
 
-**Full Success:**
-1. ✅ Train d20 (561M) model without OOM
-2. ✅ Match nanochat's CORE metric within 5%
-3. ✅ Web UI working
-4. ✅ All evaluation tasks passing
+**Full Success (Long-term):**
+1. [ ] Train d12 to completion (~20 Chinchilla tokens)
+2. [ ] Train d20 (561M) model without OOM
+3. [ ] Match nanochat's validation loss
+4. [ ] Web UI working
+5. [ ] All evaluation tasks passing
 
 ---
 
-## Timeline Estimate
+## ⏱️ Timeline & Progress
 
-| Phase | Duration | Priority |
-|-------|----------|----------|
-| Phase 1: Core Model | 1 week | **P0** (Critical) |
-| Phase 2: Training | 1 week | **P0** (Critical) |
-| Phase 3: Inference | 3 days | **P1** (High) |
-| Phase 4: Evaluation | 4 days | **P2** (Medium) |
-| Optimization | Ongoing | **P2** (Medium) |
-| Fine-tuning | 1 week | **P3** (Low) |
+**Completed So Far:** ~70% of core infrastructure ✅
 
-**Total MVP:** ~2.5 weeks
-**Total Full Port:** ~4 weeks
+| Phase | Status | Time Spent | Priority |
+|-------|--------|------------|----------|
+| Phase 1.1: GPT Model | ✅ Complete | ~2 hours | **P0** |
+| Phase 1.2: Muon Optimizer | ✅ Complete | ~2 hours | **P0** |
+| Phase 2.1: Tokenizer | ✅ Complete | ~1 hour | **P0** |
+| Phase 2.2: Dataloader | ✅ Complete | ~2 hours | **P0** |
+| Phase 2.2.1: Streaming | ✅ Complete | ~2 hours | **P0** |
+| Phase 2.3: Training Script | 🚧 50% | ~2 hours | **P0** |
+| Phase 2.4: Checkpoints | ⏳ Not started | Est: 2-4h | **P1** |
+| Phase 3: Inference | ⏳ Not started | Est: 1 day | **P1** |
+| Phase 4: Evaluation | ⏳ Not started | Est: 2 days | **P2** |
+
+**Next Milestone:** Complete training script with MLX gradient handling (Est: 4-8 hours)
+
+**Total Time to MVP:** ~2-3 more sessions (8-12 hours)
+**Total Time to Full Port:** ~1-2 weeks of focused work
 
 ---
 
@@ -362,12 +422,38 @@ Port nanochat to MLX for single-machine training on Apple Silicon (M3 Pro 36GB).
 
 ---
 
-## Questions to Resolve
+## ❓ Open Questions & Research Needed
 
-- [ ] Can we share optimizer state between nanochat/mlxchat checkpoints?
+### Critical (Blocking Training)
+- [ ] **MLX Gradient Accumulation:** How to properly accumulate gradients across micro-batches?
+  - PyTorch: Multiple `.backward()` calls accumulate automatically
+  - MLX: Functional API - need to manually accumulate?
+
+- [ ] **MLX Multi-Optimizer:** How to coordinate Adam + Muon on different param groups?
+  - Do we need separate gradient dictionaries?
+  - How to update model with two optimizers?
+
+- [ ] **MLX Gradient Clipping:** No built-in `clip_grad_norm_`, how to implement?
+  - Compute global norm across all gradients
+  - Scale gradients if norm > threshold
+
+### Performance Questions
 - [ ] What's the actual tokens/sec on M3 Pro vs 8xH100?
-- [ ] Do we need mixed precision training in MLX? (bf16 by default?)
-- [ ] Can we reuse nanochat's Rust tokenizer binary or rebuild?
+  - Need to benchmark once training works
+  - Estimate: ~1000-5000 tok/sec for d12 on M3 Pro
+
+- [ ] Do we need mixed precision in MLX?
+  - MLX uses bfloat16 by default for matmuls
+  - Is explicit dtype management needed?
+
+### Future Optimization
+- [ ] Can we share optimizer state between nanochat/mlxchat checkpoints?
+  - Likely not directly compatible (PyTorch vs MLX)
+  - Could write conversion utility
+
+- [ ] Should we use MLX's graph compilation?
+  - `mx.compile()` for performance
+  - Need to test if it works with our model
 
 ---
 
