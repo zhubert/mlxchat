@@ -21,6 +21,7 @@ from mlxchat.gpt import GPT, GPTConfig
 from mlxchat.muon import Muon
 from mlxchat.dataloader import DataLoader
 from mlxchat.tokenizer import get_tokenizer
+from mlxchat.checkpoint_manager import save_checkpoint, get_base_dir
 
 
 def get_args():
@@ -57,6 +58,7 @@ def get_args():
     # Output
     parser.add_argument("--output-dir", type=str, default=None, help="Output directory for checkpoints")
     parser.add_argument("--model-tag", type=str, default="", help="Model tag for checkpoint directory")
+    parser.add_argument("--save-every", type=int, default=1000, help="Save checkpoint every N steps")
 
     return parser.parse_args()
 
@@ -163,6 +165,45 @@ def loss_fn(model, inputs, targets):
     return model(inputs, targets=targets)
 
 
+def evaluate(model, val_loader, eval_steps):
+    """
+    Evaluate the model on validation data.
+
+    Args:
+        model: GPT model
+        val_loader: Validation data loader
+        eval_steps: Number of batches to evaluate
+
+    Returns:
+        Average validation loss
+    """
+    model.eval()  # Set to eval mode (though MLX doesn't have dropout/batchnorm)
+
+    total_loss = 0.0
+    num_batches = 0
+
+    val_iter = iter(val_loader)
+
+    for _ in range(eval_steps):
+        try:
+            inputs, targets = next(val_iter)
+
+            # Forward pass only (no gradients)
+            loss = model(inputs, targets=targets)
+            total_loss += loss.item()
+            num_batches += 1
+
+        except StopIteration:
+            break
+
+    model.train()  # Set back to train mode
+
+    if num_batches == 0:
+        return float('inf')
+
+    return total_loss / num_batches
+
+
 def clip_gradients(grads, max_norm):
     """
     Clip gradients by global norm.
@@ -242,6 +283,20 @@ def main():
     print(f"  Total training tokens: {total_tokens:,}")
     print(f"  Tokens:Params ratio: {total_tokens / num_params:.2f}")
 
+    # Setup checkpoint directory
+    if args.output_dir is None:
+        base_dir = get_base_dir()
+        args.output_dir = os.path.join(base_dir, "base_checkpoints")
+
+    # Determine model tag from depth if not provided
+    if not args.model_tag:
+        args.model_tag = f"d{args.depth}"
+
+    checkpoint_dir = os.path.join(args.output_dir, args.model_tag)
+    print(f"\nCheckpoint directory: {checkpoint_dir}")
+    print(f"  Model tag: {args.model_tag}")
+    print(f"  Save every: {args.save_every} steps")
+
     # Setup optimizers
     print(f"\nSetting up optimizers...")
     adam_opt, muon_opt, param_groups = setup_optimizers(model, config, args)
@@ -262,6 +317,21 @@ def main():
         max_cached_shards=args.max_cached_shards,
     )
 
+    # Setup validation dataloader
+    val_loader = DataLoader(
+        batch_size=args.device_batch_size,
+        sequence_length=args.max_seq_len,
+        split="val",
+        data_dir=args.data_dir,
+        tokenizer_dir=args.tokenizer_dir,
+        streaming=args.streaming,
+        max_cached_shards=args.max_cached_shards,
+    )
+
+    # Calculate validation steps from eval_tokens
+    eval_steps = max(1, args.eval_tokens // (args.device_batch_size * args.max_seq_len))
+    print(f"  Validation steps per eval: {eval_steps}")
+
     # Training state
     smooth_train_loss = 0.0
     ema_beta = 0.9
@@ -278,8 +348,51 @@ def main():
     for step in range(num_iterations + 1):
         last_step = (step == num_iterations)
 
-        # TODO: Add validation evaluation
-        # TODO: Add checkpoint saving
+        # Checkpoint saving
+        if step > 0 and (step % args.save_every == 0 or last_step):
+            print(f"\nSaving checkpoint at step {step}...")
+
+            # Prepare metadata
+            meta_data = {
+                "step": step,
+                "loss": smooth_train_loss / (1 - ema_beta ** step) if step > 0 else 0.0,
+                "model_config": {
+                    "sequence_len": config.sequence_len,
+                    "vocab_size": config.vocab_size,
+                    "n_layer": config.n_layer,
+                    "n_head": config.n_head,
+                    "n_kv_head": config.n_kv_head,
+                    "n_embd": config.n_embd,
+                },
+                "training_config": {
+                    "depth": args.depth,
+                    "device_batch_size": args.device_batch_size,
+                    "total_batch_size": args.total_batch_size,
+                    "grad_accum_steps": grad_accum_steps,
+                    "num_iterations": num_iterations,
+                },
+            }
+
+            # Prepare optimizer data
+            optimizer_data = {
+                "adam": adam_opt.state,
+                "muon": muon_opt.state,
+            }
+
+            # Save checkpoint
+            save_checkpoint(checkpoint_dir, step, model, optimizer_data, meta_data)
+            print(f"Checkpoint saved successfully")
+
+        # Validation evaluation
+        if step > 0 and step % args.eval_every == 0:
+            print(f"\nEvaluating at step {step}...")
+            val_loss = evaluate(model, val_loader, eval_steps)
+            print(f"Validation loss: {val_loss:.6f}")
+
+            # Update min validation loss
+            if val_loss < min_val_loss:
+                min_val_loss = val_loss
+                print(f"New best validation loss!")
 
         if last_step:
             break

@@ -10,6 +10,7 @@ import sys
 import time
 import tempfile
 import pickle
+import shutil
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -22,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from mlxchat.gpt import GPT, GPTConfig
 from mlxchat.muon import Muon
 from mlxchat.tokenizer import Tokenizer
+from mlxchat.checkpoint_manager import save_checkpoint, load_checkpoint
 
 
 def create_temp_tokenizer():
@@ -241,8 +243,69 @@ def main():
     print("Training Complete!")
     print(f"{'='*80}")
 
-    # Cleanup
-    import shutil
+    # Test checkpoint saving
+    print(f"\n{'='*80}")
+    print("Testing Checkpoint Saving")
+    print(f"{'='*80}\n")
+
+    checkpoint_dir = tempfile.mkdtemp()
+    try:
+        # Save checkpoint
+        print(f"Saving checkpoint...")
+        meta_data = {
+            "step": num_iterations,
+            "loss": train_loss,
+            "model_config": {
+                "sequence_len": config.sequence_len,
+                "vocab_size": config.vocab_size,
+                "n_layer": config.n_layer,
+                "n_head": config.n_head,
+                "n_kv_head": config.n_kv_head,
+                "n_embd": config.n_embd,
+            },
+        }
+
+        optimizer_data = {
+            "adam": adam_optimizer.state,
+            "muon": muon_optimizer.state,
+        }
+
+        save_checkpoint(checkpoint_dir, num_iterations, model, optimizer_data, meta_data)
+        print(f"✓ Checkpoint saved to {checkpoint_dir}")
+
+        # Load checkpoint
+        print(f"\nLoading checkpoint...")
+        loaded_model_data, loaded_optim_data, loaded_meta = load_checkpoint(
+            checkpoint_dir, num_iterations, load_optimizer=True
+        )
+        print(f"✓ Checkpoint loaded successfully")
+
+        # Verify metadata
+        assert loaded_meta["step"] == num_iterations
+        assert "model_config" in loaded_meta
+        print(f"✓ Metadata verified (step={loaded_meta['step']})")
+
+        # Verify model parameters
+        assert "wte" in loaded_model_data
+        assert "h" in loaded_model_data
+        assert "lm_head" in loaded_model_data
+        print(f"✓ Model data verified")
+
+        # Verify optimizer states
+        assert loaded_optim_data is not None
+        assert "adam" in loaded_optim_data
+        assert "muon" in loaded_optim_data
+        print(f"✓ Optimizer data verified")
+
+        print(f"\n{'='*80}")
+        print("All Checkpoint Tests Passed!")
+        print(f"{'='*80}")
+
+    finally:
+        # Cleanup checkpoint dir
+        shutil.rmtree(checkpoint_dir)
+
+    # Cleanup tokenizer
     shutil.rmtree(temp_dir)
     print(f"\nCleaned up temporary files")
 
