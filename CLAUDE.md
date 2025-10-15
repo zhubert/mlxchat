@@ -20,8 +20,36 @@ mlxchat is an MLX port of [nanochat](https://github.com/karpathy/nanochat) by An
 pip install -e ".[dev]"
 
 # Or just core dependencies
-pip install mlx numpy tiktoken regex fastapi uvicorn datasets psutil
+pip install mlx numpy tiktoken regex fastapi uvicorn datasets psutil requests
 ```
+
+### Data Management
+
+**Streaming Mode (Recommended for MacBooks with limited storage):**
+```bash
+# Train with automatic shard downloads (keeps only 20 shards cached)
+python -m scripts.base_train --streaming --max-cached-shards 20
+```
+- Storage: ~3-8 GB depending on cache size
+- Coverage: Full dataset (1823 shards, ~300 GB total)
+- Shards downloaded on-demand during training
+- Old shards automatically removed when cache is full
+
+**Pre-download Mode:**
+```bash
+# Download specific number of shards
+python -m mlxchat.dataset --num-shards 50  # ~8 GB
+
+# Then train without streaming
+python -m scripts.base_train --depth=12
+```
+
+**Storage Requirements:**
+- Streaming (20 shards): ~3.2 GB → 100% dataset coverage
+- Streaming (50 shards): ~8 GB → 100% dataset coverage
+- Pre-download 50: ~8 GB → ~2.7% coverage
+- Pre-download 100: ~16 GB → ~5.5% coverage
+- Full download: ~300 GB → 100% coverage
 
 ### Training
 ```bash

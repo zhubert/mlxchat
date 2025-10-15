@@ -2,7 +2,7 @@
 Dataloader for mlxchat
 
 Reads FineWeb parquet shards and yields batches of tokenized sequences.
-Simplified version without distributed training support.
+Supports on-demand shard downloading for limited storage.
 """
 
 import os
@@ -12,66 +12,98 @@ import mlx.core as mx
 import pyarrow.parquet as pq
 
 from mlxchat.tokenizer import get_tokenizer
+from mlxchat.dataset import ShardCache, shard_index_to_filename
 
 
-def list_parquet_files(data_dir):
+def list_parquet_files(data_dir, require_files=True):
     """
     List all parquet files in a directory.
 
     Args:
         data_dir: Path to directory containing parquet files
+        require_files: If True, raise error if no files found
 
     Returns:
         List of full paths to parquet files
     """
     if not os.path.exists(data_dir):
-        raise FileNotFoundError(
-            f"Data directory not found: {data_dir}. "
-            f"Please download FineWeb shards using nanochat first."
-        )
+        if require_files:
+            raise FileNotFoundError(
+                f"Data directory not found: {data_dir}. "
+                f"Please download FineWeb shards or enable streaming mode."
+            )
+        return []
 
     parquet_files = sorted([
         f for f in os.listdir(data_dir)
         if f.endswith('.parquet') and not f.endswith('.tmp')
     ])
 
-    if not parquet_files:
+    if not parquet_files and require_files:
         raise FileNotFoundError(
             f"No parquet files found in {data_dir}. "
-            f"Please download FineWeb shards using nanochat first."
+            f"Please download FineWeb shards or enable streaming mode."
         )
 
     parquet_paths = [os.path.join(data_dir, f) for f in parquet_files]
     return parquet_paths
 
 
-def parquets_iter_batched(split, data_dir):
+def parquets_iter_batched(split, data_dir, shard_cache=None):
     """
     Iterate through parquet files, yielding batches of text documents.
+
+    Supports two modes:
+    1. Static: Iterate over existing files in data_dir
+    2. Streaming: Download shards on-demand using shard_cache
 
     Args:
         split: Either "train" or "val"
         data_dir: Path to directory containing parquet files
+        shard_cache: Optional ShardCache for on-demand downloads
 
     Yields:
         List of text strings (one batch from a row group)
     """
     assert split in ["train", "val"], "split must be 'train' or 'val'"
 
-    parquet_paths = list_parquet_files(data_dir)
+    if shard_cache is None:
+        # Static mode: use existing files
+        parquet_paths = list_parquet_files(data_dir, require_files=True)
 
-    # Use last file for validation, all others for training
-    if split == "train":
-        parquet_paths = parquet_paths[:-1]
+        # Use last file for validation, all others for training
+        if split == "train":
+            parquet_paths = parquet_paths[:-1]
+        else:
+            parquet_paths = parquet_paths[-1:]
+
+        for filepath in parquet_paths:
+            pf = pq.ParquetFile(filepath)
+            for rg_idx in range(pf.num_row_groups):
+                rg = pf.read_row_group(rg_idx)
+                texts = rg.column('text').to_pylist()
+                yield texts
     else:
-        parquet_paths = parquet_paths[-1:]
+        # Streaming mode: download shards on-demand
+        from mlxchat.dataset import MAX_SHARD
 
-    for filepath in parquet_paths:
-        pf = pq.ParquetFile(filepath)
-        for rg_idx in range(pf.num_row_groups):
-            rg = pf.read_row_group(rg_idx)
-            texts = rg.column('text').to_pylist()
-            yield texts
+        # Determine shard range based on split
+        if split == "train":
+            shard_indices = range(0, MAX_SHARD)  # All but last
+        else:
+            shard_indices = [MAX_SHARD]  # Last shard only
+
+        for shard_idx in shard_indices:
+            filepath = shard_cache.get_shard_path(shard_idx)
+            if filepath is None:
+                print(f"Warning: Failed to get shard {shard_idx}, skipping")
+                continue
+
+            pf = pq.ParquetFile(filepath)
+            for rg_idx in range(pf.num_row_groups):
+                rg = pf.read_row_group(rg_idx)
+                texts = rg.column('text').to_pylist()
+                yield texts
 
 
 class DataLoader:
@@ -92,6 +124,8 @@ class DataLoader:
         data_dir=None,
         tokenizer_dir=None,
         tokenizer_batch_size=128,
+        streaming=False,
+        max_cached_shards=20,
     ):
         """
         Initialize dataloader.
@@ -101,21 +135,39 @@ class DataLoader:
             sequence_length: Length of each sequence (T)
             split: Either "train" or "val"
             data_dir: Path to directory with parquet files
-                     (default: ~/.cache/nanochat/base_data)
+                     (default: ~/.cache/mlxchat/base_data for streaming,
+                      ~/.cache/nanochat/base_data otherwise)
             tokenizer_dir: Path to tokenizer directory
                           (default: ~/.cache/nanochat/tokenizer)
             tokenizer_batch_size: Number of documents to tokenize at once
+            streaming: If True, download shards on-demand
+            max_cached_shards: Max shards to keep on disk (streaming mode only)
         """
         self.batch_size = batch_size
         self.sequence_length = sequence_length
         self.split = split
         self.tokenizer_batch_size = tokenizer_batch_size
+        self.streaming = streaming
 
         # Set default data directory
         if data_dir is None:
             home = os.path.expanduser("~")
-            data_dir = os.path.join(home, ".cache", "nanochat", "base_data")
+            if streaming:
+                data_dir = os.path.join(home, ".cache", "mlxchat", "base_data")
+            else:
+                data_dir = os.path.join(home, ".cache", "nanochat", "base_data")
         self.data_dir = data_dir
+
+        # Setup shard cache for streaming mode
+        if streaming:
+            self.shard_cache = ShardCache(
+                data_dir=data_dir,
+                max_shards=max_cached_shards,
+                enable_cache_cleanup=True,
+            )
+            print(f"Streaming mode enabled: max {max_cached_shards} shards cached")
+        else:
+            self.shard_cache = None
 
         # Load tokenizer
         self.tokenizer = get_tokenizer(tokenizer_dir)
@@ -135,7 +187,9 @@ class DataLoader:
             List of text strings
         """
         while True:
-            for batch in parquets_iter_batched(self.split, self.data_dir):
+            for batch in parquets_iter_batched(
+                self.split, self.data_dir, self.shard_cache
+            ):
                 # Yield in smaller batches for tokenizer
                 for i in range(0, len(batch), self.tokenizer_batch_size):
                     yield batch[i:i+self.tokenizer_batch_size]
@@ -192,6 +246,8 @@ def get_dataloader(
     split="train",
     data_dir=None,
     tokenizer_dir=None,
+    streaming=False,
+    max_cached_shards=20,
 ):
     """
     Convenience function to create a dataloader.
@@ -200,8 +256,10 @@ def get_dataloader(
         batch_size: Number of sequences per batch
         sequence_length: Length of each sequence
         split: Either "train" or "val"
-        data_dir: Path to parquet files (default: ~/.cache/nanochat/base_data)
+        data_dir: Path to parquet files
         tokenizer_dir: Path to tokenizer (default: ~/.cache/nanochat/tokenizer)
+        streaming: If True, download shards on-demand
+        max_cached_shards: Max shards to keep on disk (streaming mode only)
 
     Returns:
         DataLoader instance
@@ -212,4 +270,6 @@ def get_dataloader(
         split=split,
         data_dir=data_dir,
         tokenizer_dir=tokenizer_dir,
+        streaming=streaming,
+        max_cached_shards=max_cached_shards,
     )
