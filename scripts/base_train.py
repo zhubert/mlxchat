@@ -163,6 +163,33 @@ def loss_fn(model, inputs, targets):
     return model(inputs, targets=targets)
 
 
+def clip_gradients(grads, max_norm):
+    """
+    Clip gradients by global norm.
+
+    Args:
+        grads: Dictionary of gradients
+        max_norm: Maximum gradient norm
+
+    Returns:
+        Clipped gradients and global norm
+    """
+    from mlx.utils import tree_flatten, tree_map
+
+    # Compute global norm
+    # tree_flatten returns list of (path, value) tuples
+    grad_list = tree_flatten(grads)
+    global_norm = mx.sqrt(sum(mx.sum(mx.square(v)) for _, v in grad_list))
+
+    # Compute scale factor
+    scale = mx.minimum(max_norm / (global_norm + 1e-6), 1.0)
+
+    # Scale all gradients
+    clipped_grads = tree_map(lambda g: g * scale, grads)
+
+    return clipped_grads, global_norm
+
+
 def main():
     args = get_args()
 
@@ -262,7 +289,11 @@ def main():
         t0 = time.time()
 
         # Gradient accumulation
+        from mlx.utils import tree_map, tree_flatten
+
+        accum_grads = None
         total_loss = 0.0
+
         for micro_step in range(grad_accum_steps):
             inputs, targets = next(train_iter)
 
@@ -273,16 +304,88 @@ def main():
             # Accumulate loss
             total_loss += loss.item()
 
-            # TODO: Accumulate gradients properly
-            # For now, just do one micro-step
-            break
+            # Accumulate gradients
+            if accum_grads is not None:
+                accum_grads = tree_map(mx.add, grads, accum_grads)
+            else:
+                accum_grads = grads
 
-        # Average loss over accumulation steps
-        train_loss = total_loss / max(1, micro_step + 1)
+            # Clean up
+            del grads
+            mx.eval(accum_grads)
 
-        # TODO: Apply gradients with optimizers
-        # TODO: Gradient clipping
-        # TODO: LR scheduling
+        # Average loss and gradients over accumulation steps
+        train_loss = total_loss / grad_accum_steps
+        accum_grads = tree_map(lambda g: g / grad_accum_steps, accum_grads)
+
+        # Gradient clipping
+        if args.grad_clip > 0.0:
+            accum_grads, grad_norm = clip_gradients(accum_grads, args.grad_clip)
+
+        # Learning rate scheduling
+        lr_mult = get_lr_multiplier(step, num_iterations)
+        muon_momentum = get_muon_momentum(step)
+
+        # Update Adam learning rate
+        adam_opt.learning_rate = args.unembedding_lr * lr_mult * ((config.n_embd / 768) ** -0.5)
+
+        # Update Muon learning rate and momentum
+        muon_opt.learning_rate = args.matrix_lr * lr_mult
+        muon_opt.momentum = muon_momentum
+
+        # Split gradients by parameter group
+        # accum_grads is a nested dict matching model structure
+        # We need to apply different optimizers to different parts
+
+        # For simplicity, we'll update all parameters with their respective optimizers
+        # by filtering the gradient tree
+        def filter_grads(grad_tree, param_tree, filter_fn):
+            """Filter gradients based on parameter names."""
+            filtered = {}
+            for key in grad_tree:
+                if isinstance(grad_tree[key], dict):
+                    filtered[key] = filter_grads(grad_tree[key], param_tree[key], filter_fn)
+                else:
+                    if filter_fn(key):
+                        filtered[key] = grad_tree[key]
+            return filtered
+
+        # Split parameters and gradients
+        # Adam: wte (embeddings) and lm_head
+        # Muon: everything else (transformer blocks)
+
+        # Create filtered gradient dictionaries
+        adam_grad_keys = {"wte", "lm_head"}
+        muon_grad_keys = {"h"}  # transformer blocks
+
+        # Filter gradients for Adam (embeddings + lm_head)
+        adam_grads = {}
+        if "wte" in accum_grads:
+            adam_grads["wte"] = accum_grads["wte"]
+        if "lm_head" in accum_grads:
+            adam_grads["lm_head"] = accum_grads["lm_head"]
+
+        # Filter gradients for Muon (transformer blocks)
+        muon_grads = {}
+        if "h" in accum_grads:
+            muon_grads["h"] = accum_grads["h"]
+
+        # Update parameters with each optimizer
+        # Note: optimizer.update expects (params_dict, grads_dict)
+        if adam_grads:
+            adam_params = {}
+            if "wte" in adam_grads:
+                adam_params["wte"] = model.wte
+            if "lm_head" in adam_grads:
+                adam_params["lm_head"] = model.lm_head
+            adam_opt.update(adam_params, adam_grads)
+
+        if muon_grads:
+            muon_params = {"h": model.h}
+            muon_opt.update(muon_params, muon_grads)
+
+        # Evaluate model and optimizer states
+        mx.eval(model.parameters(), adam_opt.state, muon_opt.state)
 
         t1 = time.time()
         dt = t1 - t0
