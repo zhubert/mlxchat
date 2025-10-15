@@ -53,26 +53,113 @@ pip install -e ".[dev]"
 
 ## Quick Start
 
+### Using Make (Easiest)
+
 ```bash
-# Option 1: Streaming mode (recommended for limited storage)
-# Downloads shards on-demand, keeps only 20 shards cached (~3GB)
-python -m scripts.base_train --depth=12 --streaming
+# See all available commands
+make help
 
-# Option 2: Pre-download a subset (for faster iteration)
-# Download first 50 shards (~8GB)
-python -m mlxchat.dataset --num-shards 50
+# Test training (2 steps, ~1 minute)
+make train-test
 
-# Train a small model (d12, 186M params) with checkpointing
-python -m scripts.base_train --depth=12 --device_batch_size=4 --save-every=1000
+# Quick training run (100 steps, ~5-10 minutes)
+make train-quick
 
-# Test training loop with dummy data (includes checkpoint test)
-python scripts/test_train_loop.py
+# Full training run (d12 model, ~3225 steps)
+make train
 
-# Train with streaming data (no pre-download needed)
-python -m scripts.base_train --depth=12 --streaming --max-cached-shards=20
+# Train larger models
+make train-d16      # 336M params
+make train-d20      # 561M params
 
-# Chat with your model (coming soon)
-# python -m scripts.chat_cli
+# Custom training
+make train DEPTH=12 STEPS=500 BATCH_SIZE=4
+
+# After training, chat with your model
+make chat-cli       # Terminal interface
+make chat-web       # Browser interface (http://localhost:8000)
+
+# Other utilities
+make test           # Run all tests
+make format         # Format code
+make disk-usage     # Check cache sizes
+```
+
+### Using Python Directly
+
+```bash
+# Test training loop (2 steps)
+uv run python -u -m scripts.base_train \
+  --depth=12 \
+  --streaming \
+  --num-iterations 2
+
+# Full training with streaming (recommended)
+uv run python -u -m scripts.base_train \
+  --depth=12 \
+  --streaming \
+  --max-cached-shards 20
+
+# Train larger model with custom batch size
+uv run python -u -m scripts.base_train \
+  --depth=16 \
+  --device-batch-size 6 \
+  --streaming
+
+# Download shards manually (optional)
+uv run python -m mlxchat.dataset --num-shards 50
+
+# Chat with trained model
+uv run python -m scripts.chat_cli --checkpoint ~/.cache/mlxchat/base_checkpoints/d12/model_latest.npz
+```
+
+## Common Workflows
+
+### First Time Setup
+```bash
+# 1. Install dependencies
+make install
+
+# 2. Run tests to verify installation
+make test
+
+# 3. Quick training test (2 steps, verifies everything works)
+make train-test
+```
+
+### Development Workflow
+```bash
+# Run quick training to test changes (100 steps)
+make train-quick
+
+# Monitor performance
+make disk-usage          # Check cache usage
+make watch-checkpoints   # Watch checkpoint saves in real-time
+
+# Code quality
+make format              # Format before committing
+make lint                # Check for issues
+```
+
+### Production Training
+```bash
+# Train d12 model (start here)
+make train               # ~8 hours, 186M params
+
+# Train larger models (more capable but slower)
+make train-d16          # ~14 hours, 336M params
+make train-d20          # ~24 hours, 561M params
+
+# Resume from checkpoint (automatic)
+# Training will resume from latest checkpoint if interrupted
+```
+
+### After Training
+```bash
+# Chat with your model
+make chat-cli           # Terminal interface
+
+make chat-web           # Browser UI at http://localhost:8000
 ```
 
 ## Model Sizes
