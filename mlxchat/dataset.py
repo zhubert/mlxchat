@@ -44,6 +44,9 @@ def download_shard(shard_index, data_dir=None, max_attempts=5):
     """
     if data_dir is None:
         data_dir = get_data_dir()
+    else:
+        # Ensure the directory exists even if a custom path was provided
+        os.makedirs(data_dir, exist_ok=True)
 
     # Construct filename and path
     filename = shard_index_to_filename(shard_index)
