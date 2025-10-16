@@ -202,7 +202,7 @@ Handle tall vs wide matrices by transposing before iteration.
 
 ## Project Status
 
-**~95% Complete** - Full training-to-inference pipeline working!
+**Complete** - Full training-to-inference pipeline working!
 
 **Completed:**
 - ✅ Phase 1.1: GPT Model (mlxchat/gpt.py, 14 tests passing)
@@ -215,6 +215,7 @@ Handle tall vs wide matrices by transposing before iteration.
   - Gradient clipping implementation ✅
   - Validation evaluation ✅
   - ETA tracking with accurate timing ✅
+  - Automatic checkpoint resumption ✅
 - ✅ Phase 2.4: Checkpoint Manager (mlxchat/checkpoint_manager.py, 4 tests passing)
 - ✅ Phase 3: Inference Engine & Chat CLI
   - KV cache for fast autoregressive generation ✅
@@ -222,10 +223,10 @@ Handle tall vs wide matrices by transposing before iteration.
   - Streaming token generation ✅
   - CLI chat interface (scripts/chat_cli.py) ✅
 
-**Not Started:**
-- ⏳ Phase 4: Web UI (FastAPI chat server with browser interface)
-
-**Next Milestone:** Web-based chat interface for easier model interaction
+**Future Work:**
+- Phase 4: Web UI (FastAPI chat server with browser interface)
+- Fine-tuning scripts (SFT, RL)
+- Additional evaluation tasks
 
 ## Implementation Guidelines
 
