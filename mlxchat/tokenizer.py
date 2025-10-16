@@ -108,6 +108,10 @@ class Tokenizer:
         """Get the beginning of sequence token ID."""
         return self.bos_token_id
 
+    def get_eot_token_id(self):
+        """Get the end of text token ID (same as BOS for document boundaries)."""
+        return self.bos_token_id
+
     def encode(self, text, prepend=None, append=None, return_array=True):
         """
         Encode text to token IDs.
