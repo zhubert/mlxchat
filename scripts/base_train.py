@@ -59,7 +59,7 @@ def get_args():
     # Output
     parser.add_argument("--output-dir", type=str, default=None, help="Output directory for checkpoints")
     parser.add_argument("--model-tag", type=str, default="", help="Model tag for checkpoint directory")
-    parser.add_argument("--save-every", type=int, default=1000, help="Save checkpoint every N steps")
+    parser.add_argument("--save-every", type=int, default=10, help="Save checkpoint every N steps")
 
     return parser.parse_args()
 
@@ -532,15 +532,14 @@ def main():
                 eta_str = "calculating..."
 
             # Logging
-            if step % 10 == 0:
-                pct_done = 100 * step / num_iterations
-                tok_per_sec = int(tokens_per_batch / dt)
-                elapsed_min = total_training_time / 60
-                print(
-                    f"step {step:05d}/{num_iterations:05d} ({pct_done:.2f}%) | "
-                    f"loss: {debiased_loss:.6f} | dt: {dt*1000:.2f}ms | "
-                    f"tok/sec: {tok_per_sec:,} | elapsed: {elapsed_min:.2f}m | eta: {eta_str}"
-                )
+            pct_done = 100 * step / num_iterations
+            tok_per_sec = int(tokens_per_batch / dt)
+            elapsed_min = total_training_time / 60
+            print(
+                f"step {step:05d}/{num_iterations:05d} ({pct_done:.2f}%) | "
+                f"loss: {debiased_loss:.6f} | dt: {dt*1000:.2f}ms | "
+                f"tok/sec: {tok_per_sec:,} | elapsed: {elapsed_min:.2f}m | eta: {eta_str}"
+            )
 
         # Checkpoint saving (after training step)
         if step > 0 and (step % args.save_every == 0 or last_step):
