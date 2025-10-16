@@ -7,7 +7,6 @@ import time
 import argparse
 import mlx.core as mx
 from mlxchat.tokenizer import Tokenizer
-from mlxchat.dataset import get_train_dataloader
 
 # Import rustbpe directly for training
 try:
@@ -40,7 +39,7 @@ def text_iterator():
     3) Break when we've seen args.max_chars characters
     """
     from mlxchat.dataset import download_shard
-    import gzip
+    import pyarrow.parquet as pq
 
     print("\nStreaming text from FineWeb shards for tokenizer training...")
     nchars = 0
@@ -55,19 +54,20 @@ def text_iterator():
 
         print(f"Processing shard {shard_idx:04d} ({nchars:,} / {args.max_chars:,} chars)")
 
-        # Read shard (gzipped text file)
-        with gzip.open(shard_path, 'rt', encoding='utf-8') as f:
-            for line in f:
-                doc_text = line.strip()
-                if len(doc_text) > args.doc_cap:
-                    doc_text = doc_text[:args.doc_cap]
+        # Read shard (parquet file)
+        table = pq.read_table(shard_path)
+        texts = table['text'].to_pylist()
 
-                nchars += len(doc_text)
-                yield doc_text
+        for doc_text in texts:
+            if len(doc_text) > args.doc_cap:
+                doc_text = doc_text[:args.doc_cap]
 
-                if nchars >= args.max_chars:
-                    print(f"Reached max_chars limit at {nchars:,} characters")
-                    return
+            nchars += len(doc_text)
+            yield doc_text
+
+            if nchars >= args.max_chars:
+                print(f"Reached max_chars limit at {nchars:,} characters")
+                return
 
         shard_idx += 1
 

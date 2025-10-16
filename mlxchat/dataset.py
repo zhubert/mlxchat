@@ -40,7 +40,7 @@ def download_shard(shard_index, data_dir=None, max_attempts=5):
         max_attempts: Maximum number of download attempts
 
     Returns:
-        True if successful, False otherwise
+        Path to the shard file if successful, None otherwise
     """
     if data_dir is None:
         data_dir = get_data_dir()
@@ -54,7 +54,7 @@ def download_shard(shard_index, data_dir=None, max_attempts=5):
 
     # Skip if already exists
     if os.path.exists(filepath):
-        return True
+        return filepath
 
     # Construct remote URL
     url = f"{BASE_URL}/{filename}"
@@ -76,7 +76,7 @@ def download_shard(shard_index, data_dir=None, max_attempts=5):
             # Move temp file to final location
             os.rename(temp_path, filepath)
             print(f"✓ Downloaded {filename}")
-            return True
+            return filepath
 
         except (requests.RequestException, IOError) as e:
             print(f"Attempt {attempt}/{max_attempts} failed for {filename}: {e}")
@@ -96,9 +96,9 @@ def download_shard(shard_index, data_dir=None, max_attempts=5):
                 time.sleep(wait_time)
             else:
                 print(f"✗ Failed to download {filename}")
-                return False
+                return None
 
-    return False
+    return None
 
 
 class ShardCache:
@@ -139,8 +139,8 @@ class ShardCache:
         # Download if doesn't exist
         if not os.path.exists(filepath):
             print(f"Shard {shard_index} not cached, downloading...")
-            success = download_shard(shard_index, self.data_dir)
-            if not success:
+            result = download_shard(shard_index, self.data_dir)
+            if result is None:
                 return None
 
         # Update access order for LRU
@@ -226,7 +226,7 @@ def download_shards(num_shards, data_dir=None, num_workers=1):
 
     successful = 0
     for i in range(num_shards):
-        if download_shard(i, data_dir):
+        if download_shard(i, data_dir) is not None:
             successful += 1
 
     print(f"Downloaded {successful}/{num_shards} shards")
