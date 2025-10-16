@@ -9,7 +9,6 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from mlxchat.dataloader import DataLoader, list_parquet_files, parquets_iter_batched
-from mlxchat.tokenizer import Tokenizer
 
 
 @pytest.fixture
@@ -69,7 +68,7 @@ def test_list_parquet_files(temp_parquet_files):
     files = list_parquet_files(temp_parquet_files)
 
     assert len(files) == 2
-    assert all(f.endswith('.parquet') for f in files)
+    assert all(f.endswith(".parquet") for f in files)
     assert all(os.path.exists(f) for f in files)
 
 

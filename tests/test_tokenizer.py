@@ -3,7 +3,7 @@
 import pytest
 import mlx.core as mx
 
-from mlxchat.tokenizer import Tokenizer, SPECIAL_TOKENS
+from mlxchat.tokenizer import Tokenizer
 
 
 def test_tokenizer_from_pretrained():

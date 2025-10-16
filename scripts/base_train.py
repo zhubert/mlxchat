@@ -11,7 +11,6 @@ Or with streaming:
 import os
 import time
 import argparse
-from pathlib import Path
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -33,7 +32,9 @@ def get_args():
     parser.add_argument("--max-seq-len", type=int, default=2048, help="Max sequence length")
 
     # Training horizon
-    parser.add_argument("--num-iterations", type=int, default=-1, help="Number of training steps (-1 = use param-data ratio)")
+    parser.add_argument(
+        "--num-iterations", type=int, default=-1, help="Number of training steps (-1 = use param-data ratio)"
+    )
     parser.add_argument("--target-param-data-ratio", type=float, default=20.0, help="Chinchilla data:param ratio")
 
     # Optimization
@@ -53,7 +54,7 @@ def get_args():
 
     # Evaluation
     parser.add_argument("--eval-every", type=int, default=250, help="Evaluate every N steps")
-    parser.add_argument("--eval-tokens", type=int, default=20*524288, help="Tokens for validation")
+    parser.add_argument("--eval-tokens", type=int, default=20 * 524288, help="Tokens for validation")
 
     # Output
     parser.add_argument("--output-dir", type=str, default=None, help="Output directory for checkpoints")
@@ -220,7 +221,7 @@ def evaluate(model, val_loader, eval_steps):
     model.train()  # Set back to train mode
 
     if num_batches == 0:
-        return float('inf')
+        return float("inf")
 
     return total_loss / num_batches
 
@@ -278,14 +279,14 @@ def main():
 
     # Get model configuration
     config = get_model_config(args.depth, args.max_seq_len, vocab_size)
-    print(f"\nModel Configuration:")
+    print("\nModel Configuration:")
     print(f"  Layers: {config.n_layer}")
     print(f"  Model dim: {config.n_embd}")
     print(f"  Num heads: {config.n_head}")
     print(f"  Num KV heads: {config.n_kv_head}")
 
     # Create model
-    print(f"\nInitializing model...")
+    print("\nInitializing model...")
     model = GPT(config)
     model.init_weights()
 
@@ -308,7 +309,7 @@ def main():
     # Calculate training horizon
     tokens_per_batch = args.device_batch_size * args.max_seq_len
     grad_accum_steps = args.total_batch_size // tokens_per_batch
-    print(f"\nBatch Configuration:")
+    print("\nBatch Configuration:")
     print(f"  Device batch size: {args.device_batch_size}")
     print(f"  Tokens per batch: {tokens_per_batch:,}")
     print(f"  Total batch size: {args.total_batch_size:,}")
@@ -343,14 +344,14 @@ def main():
     print(f"  Save every: {args.save_every} steps")
 
     # Setup optimizers
-    print(f"\nSetting up optimizers...")
+    print("\nSetting up optimizers...")
     adam_opt, muon_opt, param_groups = setup_optimizers(model, config, args)
     # param_groups is a dict with "adam" and "muon" keys
     adam_params = param_groups["adam"]
     muon_params = param_groups["muon"]
 
     # Setup dataloaders
-    print(f"\nSetting up dataloaders...")
+    print("\nSetting up dataloaders...")
     if args.streaming:
         print(f"  Streaming mode enabled: max {args.max_cached_shards} shards cached")
 
@@ -395,7 +396,7 @@ def main():
     train_iter = iter(train_loader)
 
     for step in range(num_iterations + 1):
-        last_step = (step == num_iterations)
+        last_step = step == num_iterations
 
         # Training step (do this FIRST, before checkpoint/eval)
         if not last_step:
@@ -403,7 +404,7 @@ def main():
             t0 = time.time()
 
             # Gradient accumulation
-            from mlx.utils import tree_map, tree_flatten
+            from mlx.utils import tree_map
 
             accum_grads = None
             total_loss = 0.0
@@ -467,10 +468,6 @@ def main():
             # Split parameters and gradients
             # Adam: wte (embeddings) and lm_head
             # Muon: everything else (transformer blocks)
-
-            # Create filtered gradient dictionaries
-            adam_grad_keys = {"wte", "lm_head"}
-            muon_grad_keys = {"h"}  # transformer blocks
 
             # Filter gradients for Adam (embeddings + lm_head)
             adam_grads = {}
@@ -539,9 +536,11 @@ def main():
                 pct_done = 100 * step / num_iterations
                 tok_per_sec = int(tokens_per_batch / dt)
                 elapsed_min = total_training_time / 60
-                print(f"step {step:05d}/{num_iterations:05d} ({pct_done:.2f}%) | "
-                      f"loss: {debiased_loss:.6f} | dt: {dt*1000:.2f}ms | "
-                      f"tok/sec: {tok_per_sec:,} | elapsed: {elapsed_min:.2f}m | eta: {eta_str}")
+                print(
+                    f"step {step:05d}/{num_iterations:05d} ({pct_done:.2f}%) | "
+                    f"loss: {debiased_loss:.6f} | dt: {dt*1000:.2f}ms | "
+                    f"tok/sec: {tok_per_sec:,} | elapsed: {elapsed_min:.2f}m | eta: {eta_str}"
+                )
 
         # Checkpoint saving (after training step)
         if step > 0 and (step % args.save_every == 0 or last_step):
@@ -550,7 +549,7 @@ def main():
             # Prepare metadata
             meta_data = {
                 "step": step,
-                "loss": smooth_train_loss / (1 - ema_beta ** step) if step > 0 else 0.0,
+                "loss": smooth_train_loss / (1 - ema_beta**step) if step > 0 else 0.0,
                 "model_config": {
                     "sequence_len": config.sequence_len,
                     "vocab_size": config.vocab_size,
@@ -576,7 +575,7 @@ def main():
 
             # Save checkpoint
             save_checkpoint(checkpoint_dir, step, model, optimizer_data, meta_data)
-            print(f"Checkpoint saved successfully")
+            print("Checkpoint saved successfully")
 
         # Validation evaluation (after training step)
         if step > 0 and step % args.eval_every == 0:
@@ -587,7 +586,7 @@ def main():
             # Update min validation loss
             if val_loss < min_val_loss:
                 min_val_loss = val_loss
-                print(f"New best validation loss!")
+                print("New best validation loss!")
 
     print(f"\n{'='*80}")
     print("Training Complete")

@@ -56,13 +56,11 @@ class Tokenizer:
         Returns:
             Tokenizer instance
         """
-        import tiktoken
 
         pickle_path = os.path.join(tokenizer_dir, "tokenizer.pkl")
         if not os.path.exists(pickle_path):
             raise FileNotFoundError(
-                f"Tokenizer not found at {pickle_path}. "
-                f"Please train a tokenizer using nanochat first."
+                f"Tokenizer not found at {pickle_path}. " f"Please train a tokenizer using nanochat first."
             )
 
         with open(pickle_path, "rb") as f:
@@ -207,7 +205,7 @@ def get_tokenizer(tokenizer_dir=None):
 
     # Fallback to tiktoken's GPT-2 tokenizer
     print(f"Warning: Nanochat tokenizer not found at {pickle_path}")
-    print(f"Falling back to tiktoken's GPT-2 tokenizer (vocab_size=50257)")
-    print(f"Note: This is fine for testing, but for production training you should")
-    print(f"train a custom tokenizer with nanochat's tok_train.py script.")
+    print("Falling back to tiktoken's GPT-2 tokenizer (vocab_size=50257)")
+    print("Note: This is fine for testing, but for production training you should")
+    print("train a custom tokenizer with nanochat's tok_train.py script.")
     return Tokenizer.from_pretrained("gpt2")

@@ -120,7 +120,7 @@ class CausalSelfAttention(nn.Module):
         if kv_cache is None or Tq == Tk:
             # Training mode: causal mask
             mask = mx.tril(mx.ones((Tq, Tk)))
-            scores = mx.where(mask, scores, -float('inf'))
+            scores = mx.where(mask, scores, -float("inf"))
         elif Tq == 1:
             # Inference with single query: attend to all keys
             pass  # no mask needed
@@ -133,7 +133,7 @@ class CausalSelfAttention(nn.Module):
             # Causal within chunk
             causal_mask = mx.tril(mx.ones((Tq, Tq)))
             mask[:, prefix_len:] = causal_mask
-            scores = mx.where(mask, scores, -float('inf'))
+            scores = mx.where(mask, scores, -float("inf"))
 
         # Apply softmax and compute output
         attn = mx.softmax(scores, axis=-1)
@@ -236,7 +236,7 @@ class GPT(nn.Module):
 
         return cos, sin
 
-    def __call__(self, idx, targets=None, kv_cache=None, loss_reduction='mean'):
+    def __call__(self, idx, targets=None, kv_cache=None, loss_reduction="mean"):
         B, T = idx.shape
 
         # Get rotary embeddings for current sequence
@@ -244,7 +244,7 @@ class GPT(nn.Module):
 
         # Offset rotary embeddings if using KV cache
         T0 = 0 if kv_cache is None else kv_cache.get_pos()
-        cos_sin = self.cos[:, T0:T0+T], self.sin[:, T0:T0+T]
+        cos_sin = self.cos[:, T0 : T0 + T], self.sin[:, T0 : T0 + T]
 
         # Forward through transformer
         x = self.wte(idx)

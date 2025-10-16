@@ -8,7 +8,6 @@ Inspired by nanochat but optimized for single-machine use with limited storage.
 import os
 import time
 import requests
-from pathlib import Path
 
 
 # FineWeb-Edu-100B dataset configuration
@@ -68,7 +67,7 @@ def download_shard(shard_index, data_dir=None, max_attempts=5):
 
             # Write to temporary file first
             temp_path = filepath + ".tmp"
-            with open(temp_path, 'wb') as f:
+            with open(temp_path, "wb") as f:
                 for chunk in response.iter_content(chunk_size=1024 * 1024):  # 1MB chunks
                     if chunk:
                         f.write(chunk)
@@ -86,12 +85,12 @@ def download_shard(shard_index, data_dir=None, max_attempts=5):
                 if os.path.exists(path):
                     try:
                         os.remove(path)
-                    except:
+                    except OSError:
                         pass
 
             # Exponential backoff
             if attempt < max_attempts:
-                wait_time = 2 ** attempt
+                wait_time = 2**attempt
                 print(f"Waiting {wait_time}s before retry...")
                 time.sleep(wait_time)
             else:
@@ -157,10 +156,7 @@ class ShardCache:
     def _cleanup_if_needed(self):
         """Remove least recently used shards if cache is too large."""
         # Count current shards
-        current_shards = [
-            f for f in os.listdir(self.data_dir)
-            if f.endswith('.parquet') and not f.endswith('.tmp')
-        ]
+        current_shards = [f for f in os.listdir(self.data_dir) if f.endswith(".parquet") and not f.endswith(".tmp")]
 
         # If over limit, remove least recently used
         if len(current_shards) > self.max_shards:
@@ -185,22 +181,15 @@ class ShardCache:
 
     def get_cache_info(self):
         """Get information about current cache status."""
-        current_shards = [
-            f for f in os.listdir(self.data_dir)
-            if f.endswith('.parquet') and not f.endswith('.tmp')
-        ]
+        current_shards = [f for f in os.listdir(self.data_dir) if f.endswith(".parquet") and not f.endswith(".tmp")]
 
-        total_size = sum(
-            os.path.getsize(os.path.join(self.data_dir, f))
-            for f in current_shards
-        )
+        total_size = sum(os.path.getsize(os.path.join(self.data_dir, f)) for f in current_shards)
 
         return {
             "num_shards": len(current_shards),
             "max_shards": self.max_shards,
             "total_size_mb": total_size / (1024 * 1024),
-            "avg_shard_size_mb": (total_size / len(current_shards) / (1024 * 1024))
-            if current_shards else 0,
+            "avg_shard_size_mb": (total_size / len(current_shards) / (1024 * 1024)) if current_shards else 0,
         }
 
 

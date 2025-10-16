@@ -77,8 +77,7 @@ class Muon(mlx.optimizers.Optimizer):
         ns_steps: The number of Newton-Schulz iteration steps to use (default: 5).
     """
 
-    def __init__(self, learning_rate: float = 0.02, momentum: float = 0.95,
-                 nesterov: bool = True, ns_steps: int = 5):
+    def __init__(self, learning_rate: float = 0.02, momentum: float = 0.95, nesterov: bool = True, ns_steps: int = 5):
         super().__init__()
         self._learning_rate = learning_rate
         self.momentum = momentum

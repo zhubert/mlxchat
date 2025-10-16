@@ -2,11 +2,13 @@
 Train a tokenizer using rustbpe (MLX version).
 Compatible with nanochat's tokenizer format.
 """
+
 import os
+import pickle
 import time
 import argparse
 import mlx.core as mx
-from mlxchat.tokenizer import Tokenizer
+import tiktoken
 
 # Import rustbpe directly for training
 try:
@@ -19,11 +21,15 @@ except ImportError:
 # -----------------------------------------------------------------------------
 # Parse command line arguments
 
-parser = argparse.ArgumentParser(description='Train a BPE tokenizer')
-parser.add_argument('--max_chars', type=int, default=10_000_000_000, help='Maximum characters to train on (default: 10B)')
-parser.add_argument('--doc_cap', type=int, default=10_000, help='Maximum characters per document (default: 10,000)')
-parser.add_argument('--vocab_size', type=int, default=65536, help='Vocabulary size (default: 65536 = 2^16)')
-parser.add_argument('--output_dir', type=str, default=None, help='Output directory (default: ~/.cache/nanochat/tokenizer)')
+parser = argparse.ArgumentParser(description="Train a BPE tokenizer")
+parser.add_argument(
+    "--max_chars", type=int, default=10_000_000_000, help="Maximum characters to train on (default: 10B)"
+)
+parser.add_argument("--doc_cap", type=int, default=10_000, help="Maximum characters per document (default: 10,000)")
+parser.add_argument("--vocab_size", type=int, default=65536, help="Vocabulary size (default: 65536 = 2^16)")
+parser.add_argument(
+    "--output_dir", type=str, default=None, help="Output directory (default: ~/.cache/nanochat/tokenizer)"
+)
 args = parser.parse_args()
 print(f"max_chars: {args.max_chars:,}")
 print(f"doc_cap: {args.doc_cap:,}")
@@ -31,6 +37,7 @@ print(f"vocab_size: {args.vocab_size:,}")
 
 # -----------------------------------------------------------------------------
 # Text iterator from FineWeb shards
+
 
 def text_iterator():
     """
@@ -56,11 +63,11 @@ def text_iterator():
 
         # Read shard (parquet file)
         table = pq.read_table(shard_path)
-        texts = table['text'].to_pylist()
+        texts = table["text"].to_pylist()
 
         for doc_text in texts:
             if len(doc_text) > args.doc_cap:
-                doc_text = doc_text[:args.doc_cap]
+                doc_text = doc_text[: args.doc_cap]
 
             nchars += len(doc_text)
             yield doc_text
@@ -70,6 +77,7 @@ def text_iterator():
                 return
 
         shard_idx += 1
+
 
 text_iter = text_iterator()
 
@@ -98,12 +106,13 @@ vocab_size_no_special = args.vocab_size - len(special_tokens)
 assert vocab_size_no_special >= 256, f"vocab_size_no_special must be at least 256, got {vocab_size_no_special}"
 
 # Pattern from nanochat (GPT-4 style)
-SPLIT_PATTERN = r"""'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}+|\p{N}{1,2}| ?[^\s\p{L}\p{N}]++[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+"""
+SPLIT_PATTERN = (
+    r"""'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}+|\p{N}{1,2}| ?[^\s\p{L}\p{N}]++[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+"""
+)
 
 tokenizer_trainer.train_from_iterator(text_iter, vocab_size_no_special, pattern=SPLIT_PATTERN)
 
 # Construct tiktoken encoding for efficient inference
-import tiktoken
 pattern = tokenizer_trainer.get_pattern()
 mergeable_ranks_list = tokenizer_trainer.get_mergeable_ranks()
 mergeable_ranks = {bytes(k): v for k, v in mergeable_ranks_list}
@@ -135,7 +144,6 @@ os.makedirs(tokenizer_dir, exist_ok=True)
 tokenizer_path = os.path.join(tokenizer_dir, "tokenizer.pkl")
 
 # Save using pickle (compatible with nanochat)
-import pickle
 with open(tokenizer_path, "wb") as f:
     pickle.dump(tokenizer, f)
 
@@ -179,10 +187,12 @@ print(f"Saved token_bytes to {token_bytes_path}")
 
 # Print summary statistics
 token_bytes_nonzero = [b for b in token_bytes if b > 0]
-print(f"\nTokenizer statistics:")
+print("\nTokenizer statistics:")
 print(f"  Vocab size: {vocab_size:,}")
 print(f"  Special tokens: {len(special_set)}")
-print(f"  Token bytes (min/max/mean): {min(token_bytes_nonzero)}/{max(token_bytes_nonzero)}/{sum(token_bytes_nonzero)/len(token_bytes_nonzero):.2f}")
-print(f"\n✓ Tokenizer training complete!")
-print(f"  You can now train models with this tokenizer.")
-print(f"  Run: python -m scripts.base_train --streaming")
+print(
+    f"  Token bytes (min/max/mean): {min(token_bytes_nonzero)}/{max(token_bytes_nonzero)}/{sum(token_bytes_nonzero)/len(token_bytes_nonzero):.2f}"
+)
+print("\n✓ Tokenizer training complete!")
+print("  You can now train models with this tokenizer.")
+print("  Run: python -m scripts.base_train --streaming")

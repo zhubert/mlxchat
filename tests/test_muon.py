@@ -161,14 +161,9 @@ def test_muon_with_model():
     opt.init_single(layer.weight, state)
 
     # Run a few training steps
-    initial_loss = None
     for step in range(10):
         # Forward pass
         pred = layer(X)
-        loss = mx.mean(mx.square(pred - y))
-
-        if step == 0:
-            initial_loss = loss.item()
 
         # Backward pass (manual gradient computation for simplicity)
         grad_output = 2 * (pred - y) / y.size

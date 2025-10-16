@@ -12,7 +12,7 @@ import mlx.core as mx
 import pyarrow.parquet as pq
 
 from mlxchat.tokenizer import get_tokenizer
-from mlxchat.dataset import ShardCache, shard_index_to_filename
+from mlxchat.dataset import ShardCache
 
 
 def list_parquet_files(data_dir, require_files=True):
@@ -29,20 +29,15 @@ def list_parquet_files(data_dir, require_files=True):
     if not os.path.exists(data_dir):
         if require_files:
             raise FileNotFoundError(
-                f"Data directory not found: {data_dir}. "
-                f"Please download FineWeb shards or enable streaming mode."
+                f"Data directory not found: {data_dir}. " f"Please download FineWeb shards or enable streaming mode."
             )
         return []
 
-    parquet_files = sorted([
-        f for f in os.listdir(data_dir)
-        if f.endswith('.parquet') and not f.endswith('.tmp')
-    ])
+    parquet_files = sorted([f for f in os.listdir(data_dir) if f.endswith(".parquet") and not f.endswith(".tmp")])
 
     if not parquet_files and require_files:
         raise FileNotFoundError(
-            f"No parquet files found in {data_dir}. "
-            f"Please download FineWeb shards or enable streaming mode."
+            f"No parquet files found in {data_dir}. " f"Please download FineWeb shards or enable streaming mode."
         )
 
     parquet_paths = [os.path.join(data_dir, f) for f in parquet_files]
@@ -81,7 +76,7 @@ def parquets_iter_batched(split, data_dir, shard_cache=None):
             pf = pq.ParquetFile(filepath)
             for rg_idx in range(pf.num_row_groups):
                 rg = pf.read_row_group(rg_idx)
-                texts = rg.column('text').to_pylist()
+                texts = rg.column("text").to_pylist()
                 yield texts
     else:
         # Streaming mode: download shards on-demand
@@ -102,7 +97,7 @@ def parquets_iter_batched(split, data_dir, shard_cache=None):
             pf = pq.ParquetFile(filepath)
             for rg_idx in range(pf.num_row_groups):
                 rg = pf.read_row_group(rg_idx)
-                texts = rg.column('text').to_pylist()
+                texts = rg.column("text").to_pylist()
                 yield texts
 
 
@@ -187,12 +182,10 @@ class DataLoader:
             List of text strings
         """
         while True:
-            for batch in parquets_iter_batched(
-                self.split, self.data_dir, self.shard_cache
-            ):
+            for batch in parquets_iter_batched(self.split, self.data_dir, self.shard_cache):
                 # Yield in smaller batches for tokenizer
                 for i in range(0, len(batch), self.tokenizer_batch_size):
-                    yield batch[i:i+self.tokenizer_batch_size]
+                    yield batch[i : i + self.tokenizer_batch_size]
 
     def __iter__(self):
         """

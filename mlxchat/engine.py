@@ -5,7 +5,6 @@ Implements KV caching for fast autoregressive generation.
 """
 
 import mlx.core as mx
-import mlx.nn as nn
 
 
 class KVCache:
@@ -73,7 +72,9 @@ class KVCache:
 
         # Grow cache if needed (shouldn't happen if seq_len is set correctly)
         if t1 > self.kv_cache.shape[4]:
-            raise ValueError(f"Cache overflow: trying to insert at position {t1} but cache size is {self.kv_cache.shape[4]}")
+            raise ValueError(
+                f"Cache overflow: trying to insert at position {t1} but cache size is {self.kv_cache.shape[4]}"
+            )
 
         # Insert keys and values
         # Note: MLX doesn't support item assignment, so we need to use array slicing
@@ -142,11 +143,7 @@ def sample_next_token(logits, temperature=1.0, top_k=None):
         # Get top k values and indices
         top_logits = mx.topk(logits, k, axis=-1)
         # Filter logits
-        logits = mx.where(
-            logits >= top_logits[:, -1:],
-            logits,
-            float('-inf')
-        )
+        logits = mx.where(logits >= top_logits[:, -1:], logits, float("-inf"))
 
     # Temperature scaling
     logits = logits / temperature
@@ -254,11 +251,7 @@ class Engine:
         # Generate tokens
         generated = []
         for token_id in self.generate(
-            tokens=tokens,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_k=top_k,
-            seed=seed
+            tokens=tokens, max_tokens=max_tokens, temperature=temperature, top_k=top_k, seed=seed
         ):
             generated.append(token_id)
 

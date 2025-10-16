@@ -10,9 +10,7 @@ from mlxchat.dataset import download_shards, get_data_dir
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Download FineWeb-Edu-100B shards for mlxchat"
-    )
+    parser = argparse.ArgumentParser(description="Download FineWeb-Edu-100B shards for mlxchat")
     parser.add_argument(
         "--num-shards",
         type=int,
@@ -30,8 +28,8 @@ def main():
 
     data_dir = args.data_dir if args.data_dir else get_data_dir()
 
-    print(f"mlxchat Dataset Downloader")
-    print(f"=" * 50)
+    print("mlxchat Dataset Downloader")
+    print("=" * 50)
     print(f"Downloading {args.num_shards} shards...")
     print(f"Target directory: {data_dir}")
     print(f"Estimated size: ~{args.num_shards * 0.165:.1f} GB")
@@ -40,14 +38,14 @@ def main():
     successful = download_shards(args.num_shards, data_dir)
 
     print()
-    print(f"=" * 50)
+    print("=" * 50)
     print(f"Download complete: {successful}/{args.num_shards} shards")
 
     if successful < args.num_shards:
         print(f"Warning: Failed to download {args.num_shards - successful} shards")
         return 1
 
-    print(f"Ready to train! Use: python -m scripts.base_train")
+    print("Ready to train! Use: python -m scripts.base_train")
     return 0
 
 

@@ -1,6 +1,7 @@
 """
 Tests for tokenizer training script.
 """
+
 import os
 import tempfile
 import shutil
@@ -11,6 +12,7 @@ import mlx.core as mx
 # Check if rustbpe is available
 try:
     import rustbpe
+
     RUSTBPE_AVAILABLE = True
 except ImportError:
     RUSTBPE_AVAILABLE = False
@@ -59,6 +61,7 @@ def test_train_small_tokenizer():
 
         # Construct tiktoken encoding for efficient inference
         import tiktoken
+
         pattern = tokenizer_trainer.get_pattern()
         mergeable_ranks_list = tokenizer_trainer.get_mergeable_ranks()
         mergeable_ranks = {bytes(k): v for k, v in mergeable_ranks_list}
@@ -102,7 +105,7 @@ def test_train_small_tokenizer():
         assert loaded_tokenizer.n_vocab >= 256  # At least the base 256 bytes
         assert loaded_tokenizer.n_vocab <= vocab_size  # Not more than requested
 
-        print(f"✓ Tokenizer trained successfully")
+        print("✓ Tokenizer trained successfully")
         print(f"  Vocab size: {loaded_tokenizer.n_vocab}")
         print(f"  Test encoding length: {len(encoded)}")
 
@@ -151,7 +154,7 @@ def test_tokenizer_special_tokens():
     test_decoded = tokenizer.decode([test_id])
     assert test_decoded == "<|test|>"
 
-    print(f"✓ Special tokens work correctly")
+    print("✓ Special tokens work correctly")
 
 
 @pytest.mark.skipif(not RUSTBPE_AVAILABLE, reason="rustbpe not installed")
@@ -207,9 +210,11 @@ def test_token_bytes_computation():
     nonzero_bytes = [b for b in token_bytes if b > 0]
     assert len(nonzero_bytes) > 0
 
-    print(f"✓ Token bytes computed correctly")
+    print("✓ Token bytes computed correctly")
     print(f"  Tokens with bytes: {len(nonzero_bytes)}/{vocab_size}")
-    print(f"  Min/max/mean bytes: {min(nonzero_bytes)}/{max(nonzero_bytes)}/{sum(nonzero_bytes)/len(nonzero_bytes):.2f}")
+    print(
+        f"  Min/max/mean bytes: {min(nonzero_bytes)}/{max(nonzero_bytes)}/{sum(nonzero_bytes)/len(nonzero_bytes):.2f}"
+    )
 
 
 @pytest.mark.skipif(not RUSTBPE_AVAILABLE, reason="rustbpe not installed")
@@ -259,7 +264,7 @@ def test_tokenizer_roundtrip():
         decoded = tokenizer.decode(encoded)
         assert decoded == test_text, f"Roundtrip failed for: {test_text}"
 
-    print(f"✓ All roundtrip tests passed")
+    print("✓ All roundtrip tests passed")
 
 
 @pytest.mark.skipif(not RUSTBPE_AVAILABLE, reason="rustbpe not installed")
@@ -306,7 +311,7 @@ def test_tokenizer_mlx_integration():
     decoded = tokenizer.decode(ids)
     assert decoded == text
 
-    print(f"✓ MLX integration works correctly")
+    print("✓ MLX integration works correctly")
 
 
 if __name__ == "__main__":

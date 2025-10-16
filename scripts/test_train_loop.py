@@ -104,25 +104,26 @@ def main():
         n_embd=256,
     )
 
-    print(f"\nModel Configuration:")
+    print("\nModel Configuration:")
     print(f"  Layers: {config.n_layer}")
     print(f"  Model dim: {config.n_embd}")
     print(f"  Num heads: {config.n_head}")
 
     # Create model
-    print(f"\nInitializing model...")
+    print("\nInitializing model...")
     model = GPT(config)
     model.init_weights()
 
     # Count parameters
     from mlx.utils import tree_flatten
+
     param_list = tree_flatten(model.parameters())
     # tree_flatten returns list of (path, value) tuples
     num_params = sum(v.size for _, v in param_list)
     print(f"Number of parameters: {num_params:,}")
 
     # Setup optimizers
-    print(f"\nSetting up optimizers...")
+    print("\nSetting up optimizers...")
 
     # Create Adam optimizer for embeddings and LM head
     adam_optimizer = optim.Adam(learning_rate=0.001)
@@ -144,7 +145,7 @@ def main():
     num_iterations = 5
     grad_clip = 1.0
 
-    print(f"\nTraining Configuration:")
+    print("\nTraining Configuration:")
     print(f"  Batch size: {batch_size}")
     print(f"  Sequence length: {seq_len}")
     print(f"  Gradient accumulation steps: {grad_accum_steps}")
@@ -233,11 +234,13 @@ def main():
         tokens_per_batch = batch_size * seq_len * grad_accum_steps
         tok_per_sec = int(tokens_per_batch / dt)
 
-        print(f"step {step:02d}/{num_iterations:02d} | "
-              f"loss: {train_loss:.6f} | "
-              f"grad_norm: {grad_norm_val:.4f} | "
-              f"dt: {dt*1000:.2f}ms | "
-              f"tok/sec: {tok_per_sec:,}")
+        print(
+            f"step {step:02d}/{num_iterations:02d} | "
+            f"loss: {train_loss:.6f} | "
+            f"grad_norm: {grad_norm_val:.4f} | "
+            f"dt: {dt*1000:.2f}ms | "
+            f"tok/sec: {tok_per_sec:,}"
+        )
 
     print(f"\n{'='*80}")
     print("Training Complete!")
@@ -251,7 +254,7 @@ def main():
     checkpoint_dir = tempfile.mkdtemp()
     try:
         # Save checkpoint
-        print(f"Saving checkpoint...")
+        print("Saving checkpoint...")
         meta_data = {
             "step": num_iterations,
             "loss": train_loss,
@@ -274,11 +277,11 @@ def main():
         print(f"✓ Checkpoint saved to {checkpoint_dir}")
 
         # Load checkpoint
-        print(f"\nLoading checkpoint...")
+        print("\nLoading checkpoint...")
         loaded_model_data, loaded_optim_data, loaded_meta = load_checkpoint(
             checkpoint_dir, num_iterations, load_optimizer=True
         )
-        print(f"✓ Checkpoint loaded successfully")
+        print("✓ Checkpoint loaded successfully")
 
         # Verify metadata
         assert loaded_meta["step"] == num_iterations
@@ -289,13 +292,13 @@ def main():
         assert "wte" in loaded_model_data
         assert "h" in loaded_model_data
         assert "lm_head" in loaded_model_data
-        print(f"✓ Model data verified")
+        print("✓ Model data verified")
 
         # Verify optimizer states
         assert loaded_optim_data is not None
         assert "adam" in loaded_optim_data
         assert "muon" in loaded_optim_data
-        print(f"✓ Optimizer data verified")
+        print("✓ Optimizer data verified")
 
         print(f"\n{'='*80}")
         print("All Checkpoint Tests Passed!")
@@ -307,7 +310,7 @@ def main():
 
     # Cleanup tokenizer
     shutil.rmtree(temp_dir)
-    print(f"\nCleaned up temporary files")
+    print("\nCleaned up temporary files")
 
     return True
 

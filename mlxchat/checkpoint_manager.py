@@ -1,6 +1,7 @@
 """
 Utilities for saving and loading model/optim/state checkpoints for MLX.
 """
+
 import os
 import re
 import glob
@@ -13,7 +14,7 @@ from mlxchat.gpt import GPT, GPTConfig
 from mlxchat.tokenizer import get_tokenizer
 
 # Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -142,8 +143,9 @@ def build_model(checkpoint_dir, step):
     tokenizer = get_tokenizer()
 
     # Sanity check: compatibility between model and tokenizer
-    assert tokenizer.get_vocab_size() == model_config_kwargs["vocab_size"], \
-        f"Tokenizer vocab size {tokenizer.get_vocab_size()} != model vocab size {model_config_kwargs['vocab_size']}"
+    assert (
+        tokenizer.get_vocab_size() == model_config_kwargs["vocab_size"]
+    ), f"Tokenizer vocab size {tokenizer.get_vocab_size()} != model vocab size {model_config_kwargs['vocab_size']}"
 
     return model, tokenizer, meta_data
 
@@ -243,6 +245,7 @@ def load_model(source, model_tag=None, step=None):
 
 # -----------------------------------------------------------------------------
 # Utility functions for flattening/unflattening nested dictionaries
+
 
 def flatten_dict(d, parent_key="", sep="."):
     """

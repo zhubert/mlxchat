@@ -1,6 +1,7 @@
 """
 Tests for checkpoint saving and loading.
 """
+
 import os
 import tempfile
 import shutil
@@ -130,9 +131,7 @@ def test_save_and_load_checkpoint():
         assert os.path.exists(os.path.join(temp_dir, f"meta_{step:06d}.json"))
 
         # Load checkpoint
-        model_data, loaded_optim_data, loaded_meta_data = load_checkpoint(
-            temp_dir, step, load_optimizer=True
-        )
+        model_data, loaded_optim_data, loaded_meta_data = load_checkpoint(temp_dir, step, load_optimizer=True)
 
         # Check metadata
         assert loaded_meta_data["step"] == step
@@ -155,6 +154,7 @@ def test_save_and_load_checkpoint():
 
         # Check that parameters match
         from mlx.utils import tree_flatten
+
         orig_params = tree_flatten(model.parameters())
         new_params = tree_flatten(new_model.parameters())
 
@@ -223,9 +223,7 @@ def test_save_checkpoint_without_optimizer():
         assert os.path.exists(os.path.join(temp_dir, f"meta_{step:06d}.json"))
 
         # Load checkpoint
-        model_data, optim_data, loaded_meta = load_checkpoint(
-            temp_dir, step, load_optimizer=False
-        )
+        model_data, optim_data, loaded_meta = load_checkpoint(temp_dir, step, load_optimizer=False)
 
         assert model_data is not None
         assert optim_data is None
