@@ -160,7 +160,6 @@ class DataLoader:
                 max_shards=max_cached_shards,
                 enable_cache_cleanup=True,
             )
-            print(f"Streaming mode enabled: max {max_cached_shards} shards cached")
         else:
             self.shard_cache = None
 
