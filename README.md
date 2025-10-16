@@ -1,3 +1,12 @@
+```
+    ███╗   ███╗██╗     ██╗  ██╗ ██████╗██╗  ██╗ █████╗ ████████╗
+    ████╗ ████║██║     ╚██╗██╔╝██╔════╝██║  ██║██╔══██╗╚══██╔══╝
+    ██╔████╔██║██║      ╚███╔╝ ██║     ███████║███████║   ██║
+    ██║╚██╔╝██║██║      ██╔██╗ ██║     ██╔══██║██╔══██║   ██║
+    ██║ ╚═╝ ██║███████╗██╔╝ ██╗╚██████╗██║  ██║██║  ██║   ██║
+    ╚═╝     ╚═╝╚══════╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝
+```
+
 # mlxchat
 
 > nanochat ported to Apple MLX - Train GPT models on your MacBook
@@ -77,7 +86,6 @@ make train DEPTH=12 STEPS=500 BATCH_SIZE=4
 
 # After training, chat with your model
 make chat-cli       # Terminal interface
-make chat-web       # Browser interface (http://localhost:8000)
 
 # Other utilities
 make test           # Run all tests
@@ -158,8 +166,6 @@ make train-d20          # ~24 hours, 561M params
 ```bash
 # Chat with your model
 make chat-cli           # Terminal interface
-
-make chat-web           # Browser UI at http://localhost:8000
 ```
 
 ## Model Sizes
@@ -175,19 +181,20 @@ Recommended for M3 Pro 36GB:
 
 ## Project Status
 
-**~90% Complete** - Full training system with checkpointing and validation!
+**~95% Complete** - Full training system with inference!
 
 - [x] Phase 1.1: GPT Model (14 tests passing)
 - [x] Phase 1.2: Muon Optimizer (11 tests passing)
 - [x] Phase 2.1: Tokenizer (12 tests passing)
 - [x] Phase 2.2: Dataloader with Streaming (11 tests passing)
-- [x] Phase 2.3: Training Script (complete - gradient accumulation, multi-optimizer, clipping, validation)
+- [x] Phase 2.3: Training Script (gradient accumulation, multi-optimizer, clipping, validation, ETA tracking)
 - [x] Phase 2.4: Checkpoint Manager (4 tests passing)
-- [ ] Phase 3: Inference & UI (chat CLI, web interface)
+- [x] Phase 3: Inference Engine & Chat CLI (KV cache, streaming generation, temperature/top-k sampling)
+- [ ] Phase 4: Web UI (FastAPI chat server)
 
-**Latest**: Complete training system ready! Training loop, checkpointing, and validation all working. Successfully saves/loads model and optimizer states. Achieving ~7K tok/sec on small models.
+**Latest**: Full training-to-inference pipeline complete! Train models with streaming data, accurate time estimates, and chat with them via CLI. Achieving ~7K tok/sec training and fast inference with KV caching.
 
-**Next Milestone**: Implement inference engine with KV cache for text generation
+**Next Milestone**: Web-based chat interface for easier interaction
 
 ## Data Management for Limited Storage
 

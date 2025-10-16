@@ -63,10 +63,7 @@ python -m scripts.base_train --depth=20 --device_batch_size=2
 ### Inference
 ```bash
 # CLI chat interface
-python -m scripts.chat_cli
-
-# Web UI
-python -m scripts.chat_web
+python -m scripts.chat_cli --checkpoint ~/.cache/mlxchat/base_checkpoints/d12/model_latest.npz
 ```
 
 ### Testing
@@ -144,18 +141,14 @@ ruff check .
 - Gradient accumulation (no distributed sync)
 - Checkpoint saving with model/optimizer/metadata
 - Periodic validation evaluation (bits-per-byte)
-- Optional wandb integration
+- ETA tracking with exponential moving average of step times
+- Training step timing excludes checkpoint/eval I/O
 
 **scripts/chat_cli.py** - CLI chat interface
 - Loads model checkpoint and tokenizer
 - Multi-turn conversation loop with streaming token generation
 - Command-line arguments: temperature, top-k, max tokens, checkpoint path
-
-**scripts/chat_web.py** - FastAPI web server
-- POST `/chat/completions`: OpenAI-compatible chat endpoint with SSE streaming
-- GET `/`: Serves HTML UI
-- GET `/health`: Health check endpoint
-- Includes embedded `ui.html` for browser-based chat
+- Uses inference engine with KV cache for fast generation
 
 ### Model Sizes
 
@@ -209,26 +202,30 @@ Handle tall vs wide matrices by transposing before iteration.
 
 ## Project Status
 
-**~70% Complete** - Core infrastructure is implemented and tested. See TODO.md for detailed status.
+**~95% Complete** - Full training-to-inference pipeline working!
 
 **Completed:**
 - ✅ Phase 1.1: GPT Model (mlxchat/gpt.py, 14 tests passing)
 - ✅ Phase 1.2: Muon Optimizer (mlxchat/muon.py, 11 tests passing)
 - ✅ Phase 2.1: Tokenizer (mlxchat/tokenizer.py, 12 tests passing)
 - ✅ Phase 2.2: Dataloader with Streaming (mlxchat/dataloader.py + dataset.py, 11 tests passing)
-
-**In Progress:**
-- 🚧 Phase 2.3: Training Script (scripts/base_train.py) - needs MLX gradient patterns
-  - Critical blocker: Gradient accumulation across micro-batches
-  - Critical blocker: Multi-optimizer coordination (Adam + Muon)
-  - Critical blocker: Gradient clipping implementation
+- ✅ Phase 2.3: Training Script (scripts/base_train.py)
+  - Gradient accumulation across micro-batches ✅
+  - Multi-optimizer coordination (Adam + Muon) ✅
+  - Gradient clipping implementation ✅
+  - Validation evaluation ✅
+  - ETA tracking with accurate timing ✅
+- ✅ Phase 2.4: Checkpoint Manager (mlxchat/checkpoint_manager.py, 4 tests passing)
+- ✅ Phase 3: Inference Engine & Chat CLI
+  - KV cache for fast autoregressive generation ✅
+  - Temperature and top-k sampling ✅
+  - Streaming token generation ✅
+  - CLI chat interface (scripts/chat_cli.py) ✅
 
 **Not Started:**
-- ⏳ Phase 2.4: Checkpoint Manager
-- ⏳ Phase 3: Inference & chat UI
-- ⏳ Phase 4: Evaluation & fine-tuning
+- ⏳ Phase 4: Web UI (FastAPI chat server with browser interface)
 
-**Next Milestone:** Complete training script to successfully train d12 for 100+ iterations
+**Next Milestone:** Web-based chat interface for easier model interaction
 
 ## Implementation Guidelines
 
@@ -263,47 +260,50 @@ Handle tall vs wide matrices by transposing before iteration.
 5. **Data shards**: Use streaming mode (`--streaming`) or pre-download shards (`python -m mlxchat.dataset`)
 6. **Causal masking**: Must implement manually, no MLX equivalent to PyTorch's built-in attention
 
-## MLX Training Patterns (Research Needed)
+## MLX Training Patterns (Implemented)
 
-The training script (scripts/base_train.py) is incomplete due to gaps in MLX knowledge. These patterns need research:
+The training script (scripts/base_train.py) successfully implements these MLX patterns:
 
 ### Gradient Accumulation
-PyTorch accumulates gradients automatically across multiple `.backward()` calls:
+MLX uses a functional API with `mx.grad()`. We accumulate by summing gradient dictionaries:
 ```python
-# PyTorch pattern
+from mlx.utils import tree_map
+
+accum_grads = None
 for micro_step in range(grad_accum_steps):
-    loss = model(x, y)
-    loss.backward()  # Gradients accumulate in .grad
-optimizer.step()
-optimizer.zero_grad()
+    loss, grads = nn.value_and_grad(model, loss_fn)(model, inputs, targets)
+    if accum_grads is not None:
+        accum_grads = tree_map(mx.add, grads, accum_grads)
+    else:
+        accum_grads = grads
+    mx.eval(accum_grads)
+
+# Average accumulated gradients
+accum_grads = tree_map(lambda g: g / grad_accum_steps, accum_grads)
 ```
 
-MLX uses a functional API with `mx.grad()`. How to accumulate? Options:
-1. Call `mx.grad()` multiple times and sum gradient dictionaries manually?
-2. Use `mx.compile()` with gradient accumulation built into the function?
-3. Average losses first, then take single gradient?
-
 ### Multi-Optimizer Coordination
-Need to apply two optimizers to different parameter groups:
-- Adam optimizer → embeddings + lm_head
-- Muon optimizer → transformer blocks
+Apply two optimizers to different parameter groups by filtering gradients:
+```python
+# Split gradients by parameter name
+adam_grads = {"wte": accum_grads["wte"], "lm_head": accum_grads["lm_head"]}
+muon_grads = {"h": accum_grads["h"]}
 
-Questions:
-1. Do we compute separate gradient dictionaries for each optimizer?
-2. How to update the model with results from two optimizers?
-3. Can we use a single `mx.grad()` call and split the gradients?
+# Update each group with its optimizer
+adam_opt.update(adam_params, adam_grads)
+muon_opt.update(muon_params, muon_grads)
+```
 
 ### Gradient Clipping
-PyTorch has `torch.nn.utils.clip_grad_norm_()` but MLX doesn't. Need to:
-1. Compute global norm: `sqrt(sum(||g||^2))` across all gradients
-2. Scale all gradients by `min(1, clip_value / global_norm)`
-3. Apply scaled gradients with optimizer
+Compute global norm and scale all gradients:
+```python
+from mlx.utils import tree_flatten, tree_map
 
-### Recommended Approach
-1. Study MLX examples repo for training patterns
-2. Look at mlx-examples/llms for transformer training
-3. Search MLX docs for gradient accumulation examples
-4. Test with small model (d12) and few iterations before full training
+grad_list = tree_flatten(grads)
+global_norm = mx.sqrt(sum(mx.sum(mx.square(v)) for _, v in grad_list))
+scale = mx.minimum(max_norm / (global_norm + 1e-6), 1.0)
+clipped_grads = tree_map(lambda g: g * scale, grads)
+```
 
 ## Resources
 
