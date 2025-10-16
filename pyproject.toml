@@ -21,11 +21,21 @@ dev = [
     "pytest>=8.0.0",
     "black>=24.0.0",
     "ruff>=0.7.0",
+    "maturin>=1.9.4",
 ]
 
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["mlxchat*"]
+exclude = ["rustbpe*"]
+
+[tool.maturin]
+module-name = "rustbpe"
+bindings = "pyo3"
+manifest-path = "rustbpe/Cargo.toml"
 
 [tool.black]
 line-length = 120

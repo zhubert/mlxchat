@@ -1,4 +1,4 @@
-.PHONY: help install test train train-quick train-test chat-cli chat-web download-data format lint clean
+.PHONY: help install install-rust build-tokenizer test train train-quick train-test chat-cli chat-web download-data format lint clean
 
 # Default target
 help:
@@ -6,6 +6,8 @@ help:
 	@echo ""
 	@echo "Available targets:"
 	@echo "  make install       - Install package with dev dependencies"
+	@echo "  make install-rust  - Install Rust toolchain (required for tokenizer)"
+	@echo "  make build-tokenizer - Build rustbpe tokenizer (2-3x faster than tiktoken)"
 	@echo "  make test          - Run all tests"
 	@echo "  make train         - Train d12 model (full run, ~3225 steps)"
 	@echo "  make train-quick   - Quick training test (100 steps)"
@@ -25,6 +27,30 @@ help:
 # Installation
 install:
 	uv pip install -e ".[dev]"
+
+install-rust:
+	@echo "Installing Rust toolchain..."
+	@command -v rustc >/dev/null 2>&1 || { \
+		echo "Rust not found. Installing via rustup..."; \
+		curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; \
+		echo ""; \
+		echo "Rust installed! Please run:"; \
+		echo "  source \"$$HOME/.cargo/env\""; \
+		echo "  make build-tokenizer"; \
+	}
+	@command -v rustc >/dev/null 2>&1 && echo "Rust is already installed: $$(rustc --version)"
+
+build-tokenizer:
+	@echo "Building rustbpe tokenizer..."
+	@command -v rustc >/dev/null 2>&1 || { \
+		echo "Error: Rust is not installed. Run 'make install-rust' first."; \
+		exit 1; \
+	}
+	cd rustbpe && uv run maturin develop --release
+	@echo ""
+	@echo "✓ rustbpe tokenizer built successfully!"
+	@echo "  This tokenizer is 2-3x faster than tiktoken."
+	@echo "  You can now train tokenizers with: python -m scripts.tok_train"
 
 # Testing
 test:

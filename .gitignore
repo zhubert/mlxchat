@@ -49,3 +49,7 @@ logs/
 
 # Cache
 .cache/
+
+# Rust
+rustbpe/target/
+*.dylib
