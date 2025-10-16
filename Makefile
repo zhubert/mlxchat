@@ -1,4 +1,4 @@
-.PHONY: help install install-rust build-tokenizer test train train-quick train-test chat-cli chat-web download-data format lint clean
+.PHONY: help install install-rust build-tokenizer train-tokenizer test train train-quick train-test chat-cli chat-web download-data format lint clean
 
 # Default target
 help:
@@ -8,6 +8,7 @@ help:
 	@echo "  make install       - Install package with dev dependencies"
 	@echo "  make install-rust  - Install Rust toolchain (required for tokenizer)"
 	@echo "  make build-tokenizer - Build rustbpe tokenizer (2-3x faster than tiktoken)"
+	@echo "  make train-tokenizer - Train a custom tokenizer (recommended before training)"
 	@echo "  make test          - Run all tests"
 	@echo "  make train         - Train d12 model (full run, ~3225 steps)"
 	@echo "  make train-quick   - Quick training test (100 steps)"
@@ -50,7 +51,15 @@ build-tokenizer:
 	@echo ""
 	@echo "✓ rustbpe tokenizer built successfully!"
 	@echo "  This tokenizer is 2-3x faster than tiktoken."
-	@echo "  You can now train tokenizers with: python -m scripts.tok_train"
+	@echo "  You can now train tokenizers with: make train-tokenizer"
+
+train-tokenizer:
+	@echo "Training tokenizer (this will take a few minutes)..."
+	@echo "Training on 10M characters from FineWeb..."
+	uv run python -m scripts.tok_train --max_chars 10000000 --vocab_size 65536
+	@echo ""
+	@echo "✓ Tokenizer training complete!"
+	@echo "  Location: ~/.cache/nanochat/tokenizer/tokenizer.pkl"
 
 # Testing
 test:
