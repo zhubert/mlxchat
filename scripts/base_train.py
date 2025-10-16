@@ -115,7 +115,7 @@ def setup_optimizers(model, config, args):
 
     # Scale learning rates by 1/sqrt(dmodel/768)
     dmodel_lr_scale = (model_dim / 768) ** -0.5
-    print(f"LR scaling factor (∝1/√(d/{768})): {dmodel_lr_scale:.6f}")
+    print(f"  LR scaling factor (∝1/√(d/{768})): {dmodel_lr_scale:.6f}")
 
     # Flatten parameters with names
     all_params = flatten_params(model.parameters())
@@ -134,9 +134,9 @@ def setup_optimizers(model, config, args):
             # All transformer block parameters
             matrix_params[name] = param
 
-    print(f"Matrix params: {len(matrix_params)}")
-    print(f"Embedding params: {len(embedding_params)}")
-    print(f"LM head params: {len(lm_head_params)}")
+    print(f"  Matrix params: {len(matrix_params)}")
+    print(f"  Embedding params: {len(embedding_params)}")
+    print(f"  LM head params: {len(lm_head_params)}")
 
     # Create Adam optimizer for embeddings and LM head
     adam_params = {**embedding_params, **lm_head_params}
@@ -252,12 +252,24 @@ def clip_gradients(grads, max_norm):
     return clipped_grads, global_norm
 
 
+def print_banner():
+    """Print ASCII art banner for MLXChat."""
+    banner = r"""
+    ███╗   ███╗██╗     ██╗  ██╗ ██████╗██╗  ██╗ █████╗ ████████╗
+    ████╗ ████║██║     ╚██╗██╔╝██╔════╝██║  ██║██╔══██╗╚══██╔══╝
+    ██╔████╔██║██║      ╚███╔╝ ██║     ███████║███████║   ██║
+    ██║╚██╔╝██║██║      ██╔██╗ ██║     ██╔══██║██╔══██║   ██║
+    ██║ ╚═╝ ██║███████╗██╔╝ ██╗╚██████╗██║  ██║██║  ██║   ██║
+    ╚═╝     ╚═╝╚══════╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝
+    """
+    print(banner)
+    print("=" * 80)
+
+
 def main():
     args = get_args()
 
-    print("=" * 80)
-    print("MLXChat Training")
-    print("=" * 80)
+    print_banner()
 
     # Load tokenizer
     tokenizer = get_tokenizer(args.tokenizer_dir)
@@ -291,7 +303,7 @@ def main():
         return total
 
     num_params = count_params(model.parameters())
-    print(f"Number of parameters: {num_params:,}")
+    print(f"  Number of parameters: {num_params:,}")
 
     # Calculate training horizon
     tokens_per_batch = args.device_batch_size * args.max_seq_len
@@ -340,7 +352,7 @@ def main():
     # Setup dataloaders
     print(f"\nSetting up dataloaders...")
     if args.streaming:
-        print(f"  Streaming mode enabled (max {args.max_cached_shards} shards)")
+        print(f"  Streaming mode enabled: max {args.max_cached_shards} shards cached")
 
     train_loader = DataLoader(
         batch_size=args.device_batch_size,
