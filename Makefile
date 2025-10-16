@@ -115,7 +115,7 @@ train-d26:
 	$(MAKE) train DEPTH=26 BATCH_SIZE=2
 
 # Inference
-CHECKPOINT ?= ~/.cache/mlxchat/base_checkpoints/d12/model_latest.npz
+CHECKPOINT ?= ~/.cache/mlxchat/base_checkpoints
 TEMP ?= 1.0
 TOP_K ?= 50
 
