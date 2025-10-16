@@ -6,6 +6,7 @@ Supports on-demand shard downloading for limited storage.
 """
 
 import os
+import logging
 from collections import deque
 
 import mlx.core as mx
@@ -13,6 +14,8 @@ import pyarrow.parquet as pq
 
 from mlxchat.tokenizer import get_tokenizer
 from mlxchat.dataset import ShardCache
+
+logger = logging.getLogger(__name__)
 
 
 def list_parquet_files(data_dir, require_files=True):
@@ -91,7 +94,7 @@ def parquets_iter_batched(split, data_dir, shard_cache=None):
         for shard_idx in shard_indices:
             filepath = shard_cache.get_shard_path(shard_idx)
             if filepath is None:
-                print(f"Warning: Failed to get shard {shard_idx}, skipping")
+                logger.warning(f"Failed to get shard {shard_idx}, skipping")
                 continue
 
             pf = pq.ParquetFile(filepath)
@@ -130,10 +133,9 @@ class DataLoader:
             sequence_length: Length of each sequence (T)
             split: Either "train" or "val"
             data_dir: Path to directory with parquet files
-                     (default: ~/.cache/mlxchat/base_data for streaming,
-                      ~/.cache/nanochat/base_data otherwise)
+                     (default: ~/.cache/mlxchat/base_data)
             tokenizer_dir: Path to tokenizer directory
-                          (default: ~/.cache/nanochat/tokenizer)
+                          (default: ~/.cache/mlxchat/tokenizer)
             tokenizer_batch_size: Number of documents to tokenize at once
             streaming: If True, download shards on-demand
             max_cached_shards: Max shards to keep on disk (streaming mode only)
@@ -147,10 +149,7 @@ class DataLoader:
         # Set default data directory
         if data_dir is None:
             home = os.path.expanduser("~")
-            if streaming:
-                data_dir = os.path.join(home, ".cache", "mlxchat", "base_data")
-            else:
-                data_dir = os.path.join(home, ".cache", "nanochat", "base_data")
+            data_dir = os.path.join(home, ".cache", "mlxchat", "base_data")
         self.data_dir = data_dir
 
         # Setup shard cache for streaming mode
@@ -229,6 +228,9 @@ class DataLoader:
             inputs = inputs.reshape(self.batch_size, self.sequence_length)
             targets = targets.reshape(self.batch_size, self.sequence_length)
 
+            # Evaluate arrays immediately to prevent lazy graph buildup
+            mx.eval(inputs, targets)
+
             yield inputs, targets
 
 
@@ -249,7 +251,7 @@ def get_dataloader(
         sequence_length: Length of each sequence
         split: Either "train" or "val"
         data_dir: Path to parquet files
-        tokenizer_dir: Path to tokenizer (default: ~/.cache/nanochat/tokenizer)
+        tokenizer_dir: Path to tokenizer (default: ~/.cache/mlxchat/tokenizer)
         streaming: If True, download shards on-demand
         max_cached_shards: Max shards to keep on disk (streaming mode only)
 

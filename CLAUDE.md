@@ -115,14 +115,14 @@ ruff check .
 - Includes tool use state machine for calculator functionality
 
 **mlxchat/dataloader.py** - Data loading
-- Reads nanochat FineWeb shards from `~/.cache/nanochat/data/`
+- Reads FineWeb shards from `~/.cache/mlxchat/base_data/`
 - Yields batches of tokenized sequences (fixed length 2048)
 - No distributed sampling (sequential iteration only)
 - Returns MLX arrays instead of PyTorch tensors
 
 **mlxchat/tokenizer.py** - Tokenizer wrapper
-- Wraps nanochat's RustBPE tokenizer
-- Points to shared tokenizer directory: `~/.cache/nanochat/tokenizer`
+- Wraps RustBPE tokenizer (trained via `make train-tokenizer`)
+- Tokenizer directory: `~/.cache/mlxchat/tokenizer`
 - Returns MLX arrays for encode/decode operations
 - Special tokens: `<|endoftext|>`, `<|user|>`, `<|assistant|>`, `<|calculator|>`, etc.
 
@@ -235,7 +235,7 @@ Handle tall vs wide matrices by transposing before iteration.
 1. **Remove all DDP/distributed code**: No `torchrun`, `dist.init_process_group()`, or distributed samplers
 2. **Convert tensor operations**: Replace PyTorch operations with MLX equivalents
 3. **Preserve architecture**: Keep same model architecture (RoPE, QK norm, MQA, ReLU²)
-4. **Reuse tokenizer**: Point to nanochat's tokenizer directory, don't rebuild
+4. **Train tokenizer**: Use `make train-tokenizer` to train a custom tokenizer
 5. **Test incrementally**: Each component should have unit tests before integration
 
 ### Code Style
@@ -257,7 +257,7 @@ Handle tall vs wide matrices by transposing before iteration.
 1. **Memory**: MLX uses unified memory - monitor total system RAM, not just GPU
 2. **Batch size**: Adjust `device_batch_size` based on available RAM (start small)
 3. **Gradient accumulation**: Use this instead of distributed training for effective large batch sizes
-4. **Tokenizer paths**: Ensure `~/.cache/nanochat/tokenizer` exists or download from nanochat
+4. **Tokenizer**: Train your own tokenizer with `make train-tokenizer` or fallback to GPT-2 tokenizer
 5. **Data shards**: Use streaming mode (`--streaming`) or pre-download shards (`python -m mlxchat.dataset`)
 6. **Causal masking**: Must implement manually, no MLX equivalent to PyTorch's built-in attention
 

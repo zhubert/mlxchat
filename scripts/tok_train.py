@@ -7,15 +7,20 @@ import os
 import pickle
 import time
 import argparse
+import logging
 import mlx.core as mx
 import tiktoken
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+logger = logging.getLogger(__name__)
 
 # Import rustbpe directly for training
 try:
     import rustbpe
 except ImportError:
-    print("Error: rustbpe is not installed.")
-    print("Please run: make build-tokenizer")
+    logger.error("rustbpe is not installed.")
+    logger.error("Please run: make build-tokenizer")
     exit(1)
 
 # -----------------------------------------------------------------------------
@@ -28,12 +33,12 @@ parser.add_argument(
 parser.add_argument("--doc_cap", type=int, default=10_000, help="Maximum characters per document (default: 10,000)")
 parser.add_argument("--vocab_size", type=int, default=65536, help="Vocabulary size (default: 65536 = 2^16)")
 parser.add_argument(
-    "--output_dir", type=str, default=None, help="Output directory (default: ~/.cache/nanochat/tokenizer)"
+    "--output_dir", type=str, default=None, help="Output directory (default: ~/.cache/mlxchat/tokenizer)"
 )
 args = parser.parse_args()
-print(f"max_chars: {args.max_chars:,}")
-print(f"doc_cap: {args.doc_cap:,}")
-print(f"vocab_size: {args.vocab_size:,}")
+logger.info(f"max_chars: {args.max_chars:,}")
+logger.info(f"doc_cap: {args.doc_cap:,}")
+logger.info(f"vocab_size: {args.vocab_size:,}")
 
 # -----------------------------------------------------------------------------
 # Text iterator from FineWeb shards
@@ -48,7 +53,7 @@ def text_iterator():
     from mlxchat.dataset import download_shard
     import pyarrow.parquet as pq
 
-    print("\nStreaming text from FineWeb shards for tokenizer training...")
+    logger.info("Streaming text from FineWeb shards for tokenizer training...")
     nchars = 0
     shard_idx = 0
 
@@ -56,10 +61,10 @@ def text_iterator():
         # Download shard if needed
         shard_path = download_shard(shard_idx)
         if shard_path is None:
-            print(f"Reached end of available shards at shard {shard_idx}")
+            logger.info(f"Reached end of available shards at shard {shard_idx}")
             break
 
-        print(f"Processing shard {shard_idx:04d} ({nchars:,} / {args.max_chars:,} chars)")
+        logger.info(f"Processing shard {shard_idx:04d} ({nchars:,} / {args.max_chars:,} chars)")
 
         # Read shard (parquet file)
         table = pq.read_table(shard_path)
@@ -73,7 +78,7 @@ def text_iterator():
             yield doc_text
 
             if nchars >= args.max_chars:
-                print(f"Reached max_chars limit at {nchars:,} characters")
+                logger.info(f"Reached max_chars limit at {nchars:,} characters")
                 return
 
         shard_idx += 1
@@ -84,7 +89,7 @@ text_iter = text_iterator()
 # -----------------------------------------------------------------------------
 # Train the tokenizer
 
-print("\nTraining tokenizer...")
+logger.info("Training tokenizer...")
 t0 = time.time()
 
 # Define special tokens (same as nanochat)
@@ -128,15 +133,15 @@ tokenizer = tiktoken.Encoding(
 
 t1 = time.time()
 train_time = t1 - t0
-print(f"Training time: {train_time:.2f}s")
+logger.info(f"Training time: {train_time:.2f}s")
 
 # -----------------------------------------------------------------------------
 # Save the tokenizer to disk
 
 if args.output_dir is None:
-    # Save to nanochat's tokenizer directory for compatibility
+    # Save to mlxchat's tokenizer directory
     home = os.path.expanduser("~")
-    tokenizer_dir = os.path.join(home, ".cache", "nanochat", "tokenizer")
+    tokenizer_dir = os.path.join(home, ".cache", "mlxchat", "tokenizer")
 else:
     tokenizer_dir = args.output_dir
 
@@ -147,7 +152,7 @@ tokenizer_path = os.path.join(tokenizer_dir, "tokenizer.pkl")
 with open(tokenizer_path, "wb") as f:
     pickle.dump(tokenizer, f)
 
-print(f"\nSaved tokenizer to {tokenizer_path}")
+logger.info(f"Saved tokenizer to {tokenizer_path}")
 
 # -----------------------------------------------------------------------------
 # Quick inline sanity check
@@ -161,12 +166,12 @@ Unicode: 你好世界 🌍"""
 encoded = tokenizer.encode_ordinary(test_text)
 decoded = tokenizer.decode(encoded)
 assert decoded == test_text, f"Sanity check failed!\nOriginal: {test_text}\nDecoded: {decoded}"
-print("\n✓ Sanity check passed")
+logger.info("✓ Sanity check passed")
 
 # -----------------------------------------------------------------------------
 # Cache token_bytes for bits-per-byte evaluation
 
-print("\nComputing token_bytes for evaluation...")
+logger.info("Computing token_bytes for evaluation...")
 vocab_size = tokenizer.n_vocab
 special_set = tokenizer.special_tokens_set
 
@@ -183,16 +188,16 @@ for token_id in range(vocab_size):
 token_bytes_mx = mx.array(token_bytes, dtype=mx.int32)
 token_bytes_path = os.path.join(tokenizer_dir, "token_bytes.npy")
 mx.save(token_bytes_path, token_bytes_mx)
-print(f"Saved token_bytes to {token_bytes_path}")
+logger.info(f"Saved token_bytes to {token_bytes_path}")
 
 # Print summary statistics
 token_bytes_nonzero = [b for b in token_bytes if b > 0]
-print("\nTokenizer statistics:")
-print(f"  Vocab size: {vocab_size:,}")
-print(f"  Special tokens: {len(special_set)}")
-print(
+logger.info("Tokenizer statistics:")
+logger.info(f"  Vocab size: {vocab_size:,}")
+logger.info(f"  Special tokens: {len(special_set)}")
+logger.info(
     f"  Token bytes (min/max/mean): {min(token_bytes_nonzero)}/{max(token_bytes_nonzero)}/{sum(token_bytes_nonzero)/len(token_bytes_nonzero):.2f}"
 )
-print("\n✓ Tokenizer training complete!")
-print("  You can now train models with this tokenizer.")
-print("  Run: python -m scripts.base_train --streaming")
+logger.info("✓ Tokenizer training complete!")
+logger.info("  You can now train models with this tokenizer.")
+logger.info("  Run: python -m scripts.base_train --streaming")

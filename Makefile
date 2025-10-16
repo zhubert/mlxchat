@@ -10,20 +10,26 @@ help:
 	@echo "  make build-tokenizer - Build rustbpe tokenizer (2-3x faster than tiktoken)"
 	@echo "  make train-tokenizer - Train a custom tokenizer (recommended before training)"
 	@echo "  make test          - Run all tests"
-	@echo "  make train         - Train d12 model (full run, ~3225 steps)"
-	@echo "  make train-quick   - Quick training test (100 steps)"
+	@echo "  make train         - Train d12 model (full run, resumes automatically)"
+	@echo "  make train-quick   - Quick training test (100 steps, resumes automatically)"
 	@echo "  make train-test    - Minimal training test (2 steps)"
 	@echo "  make chat-cli      - Run CLI chat interface"
 	@echo "  make chat-web      - Run web UI chat interface"
 	@echo "  make download-data - Download first 50 shards (~8GB)"
+	@echo "  make logs          - List recent training logs"
+	@echo "  make tail-log      - Follow latest training log in real-time"
+	@echo "  make view-log      - View latest training log"
 	@echo "  make format        - Format code with black"
 	@echo "  make lint          - Lint code with ruff"
 	@echo "  make clean         - Clean cache and build artifacts"
 	@echo ""
 	@echo "Training with custom depth:"
-	@echo "  make train DEPTH=16 STEPS=1000"
+	@echo "  make train DEPTH=16 STEPS=1000 SAVE_EVERY=100"
 	@echo ""
-	@echo "Streaming mode is enabled by default (20 cached shards)"
+	@echo "Features:"
+	@echo "  - Streaming mode enabled by default (20 cached shards)"
+	@echo "  - Automatic checkpoint resumption (--resume)"
+	@echo "  - Timestamped logs in ~/.cache/mlxchat/logs/"
 
 # Installation
 install:
@@ -59,7 +65,7 @@ train-tokenizer:
 	uv run python -m scripts.tok_train --max_chars 10000000 --vocab_size 65536
 	@echo ""
 	@echo "✓ Tokenizer training complete!"
-	@echo "  Location: ~/.cache/nanochat/tokenizer/tokenizer.pkl"
+	@echo "  Location: ~/.cache/mlxchat/tokenizer/tokenizer.pkl"
 
 # Testing
 test:
@@ -76,6 +82,7 @@ DEPTH ?= 12
 BATCH_SIZE ?= 8
 STEPS ?= -1
 CACHED_SHARDS ?= 20
+SAVE_EVERY ?= 250
 
 train:
 	uv run python -u -m scripts.base_train \
@@ -83,7 +90,9 @@ train:
 		--streaming \
 		--max-cached-shards $(CACHED_SHARDS) \
 		--device-batch-size $(BATCH_SIZE) \
-		--num-iterations $(STEPS)
+		--num-iterations $(STEPS) \
+		--save-every $(SAVE_EVERY) \
+		--resume
 
 train-quick:
 	uv run python -u -m scripts.base_train \
@@ -91,7 +100,9 @@ train-quick:
 		--streaming \
 		--max-cached-shards 20 \
 		--device-batch-size 8 \
-		--num-iterations 100
+		--num-iterations 100 \
+		--save-every 25 \
+		--resume
 
 train-test:
 	uv run python -u -m scripts.base_train \
@@ -99,7 +110,9 @@ train-test:
 		--streaming \
 		--max-cached-shards 5 \
 		--device-batch-size 8 \
-		--num-iterations 2
+		--num-iterations 2 \
+		--save-every 1 \
+		--resume
 
 # Training different model sizes
 train-d12:
@@ -164,14 +177,16 @@ clean:
 	rm -rf __pycache__
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
+	rm -rf ~/.cache/mlxchat/base_checkpoints
+	rm -rf ~/.cache/mlxchat/logs
+	@echo "Cleaned build artifacts, checkpoints, and logs"
 
 clean-cache:
-	@echo "Warning: This will delete all cached shards and checkpoints"
+	@echo "Warning: This will delete all cached data, checkpoints, and tokenizer"
 	@read -p "Are you sure? [y/N] " -n 1 -r; \
 	echo; \
 	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
 		rm -rf ~/.cache/mlxchat; \
-		rm -rf ~/.cache/nanochat; \
 	fi
 
 # Monitoring
@@ -180,7 +195,44 @@ watch-checkpoints:
 
 disk-usage:
 	@echo "Cached shards:"
-	@du -sh ~/.cache/nanochat/data 2>/dev/null || echo "No shards cached"
+	@du -sh ~/.cache/mlxchat/base_data 2>/dev/null || echo "No shards cached"
 	@echo ""
 	@echo "Checkpoints:"
 	@du -sh ~/.cache/mlxchat/base_checkpoints 2>/dev/null || echo "No checkpoints saved"
+	@echo ""
+	@echo "Tokenizer:"
+	@du -sh ~/.cache/mlxchat/tokenizer 2>/dev/null || echo "No tokenizer trained"
+
+# Logging
+logs:
+	@echo "Training logs:"
+	@ls -lht ~/.cache/mlxchat/logs/ 2>/dev/null | head -10 || echo "No logs found"
+
+tail-log:
+	@LOG_FILE=$$(ls -t ~/.cache/mlxchat/logs/train_*.log 2>/dev/null | head -1); \
+	if [ -n "$$LOG_FILE" ]; then \
+		echo "Tailing: $$LOG_FILE"; \
+		echo ""; \
+		tail -f "$$LOG_FILE"; \
+	else \
+		echo "No training logs found in ~/.cache/mlxchat/logs/"; \
+	fi
+
+view-log:
+	@LOG_FILE=$$(ls -t ~/.cache/mlxchat/logs/train_*.log 2>/dev/null | head -1); \
+	if [ -n "$$LOG_FILE" ]; then \
+		echo "Viewing: $$LOG_FILE"; \
+		echo ""; \
+		less +G "$$LOG_FILE"; \
+	else \
+		echo "No training logs found in ~/.cache/mlxchat/logs/"; \
+	fi
+
+clean-logs:
+	@echo "Warning: This will delete all training logs"
+	@read -p "Are you sure? [y/N] " -n 1 -r; \
+	echo; \
+	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
+		rm -rf ~/.cache/mlxchat/logs; \
+		echo "Logs deleted"; \
+	fi

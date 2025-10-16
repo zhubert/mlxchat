@@ -7,7 +7,10 @@ Inspired by nanochat but optimized for single-machine use with limited storage.
 
 import os
 import time
+import logging
 import requests
+
+logger = logging.getLogger(__name__)
 
 
 # FineWeb-Edu-100B dataset configuration
@@ -57,7 +60,7 @@ def download_shard(shard_index, data_dir=None, max_attempts=5):
 
     # Construct remote URL
     url = f"{BASE_URL}/{filename}"
-    print(f"Downloading {filename}...")
+    logger.info(f"Downloading {filename}...")
 
     # Download with retries
     for attempt in range(1, max_attempts + 1):
@@ -74,11 +77,11 @@ def download_shard(shard_index, data_dir=None, max_attempts=5):
 
             # Move temp file to final location
             os.rename(temp_path, filepath)
-            print(f"✓ Downloaded {filename}")
+            logger.info(f"✓ Downloaded {filename}")
             return filepath
 
         except (requests.RequestException, IOError) as e:
-            print(f"Attempt {attempt}/{max_attempts} failed for {filename}: {e}")
+            logger.warning(f"Attempt {attempt}/{max_attempts} failed for {filename}: {e}")
 
             # Clean up any partial files
             for path in [temp_path, filepath]:
@@ -91,10 +94,10 @@ def download_shard(shard_index, data_dir=None, max_attempts=5):
             # Exponential backoff
             if attempt < max_attempts:
                 wait_time = 2**attempt
-                print(f"Waiting {wait_time}s before retry...")
+                logger.info(f"Waiting {wait_time}s before retry...")
                 time.sleep(wait_time)
             else:
-                print(f"✗ Failed to download {filename}")
+                logger.error(f"✗ Failed to download {filename}")
                 return None
 
     return None
@@ -137,7 +140,7 @@ class ShardCache:
 
         # Download if doesn't exist
         if not os.path.exists(filepath):
-            print(f"Shard {shard_index} not cached, downloading...")
+            logger.info(f"Shard {shard_index} not cached, downloading...")
             result = download_shard(shard_index, self.data_dir)
             if result is None:
                 return None
@@ -175,9 +178,9 @@ class ShardCache:
                 if os.path.exists(oldest_path):
                     try:
                         os.remove(oldest_path)
-                        print(f"Removed old shard: {oldest_filename}")
+                        logger.info(f"Removed old shard: {oldest_filename}")
                     except OSError as e:
-                        print(f"Failed to remove {oldest_filename}: {e}")
+                        logger.warning(f"Failed to remove {oldest_filename}: {e}")
 
     def get_cache_info(self):
         """Get information about current cache status."""
@@ -211,12 +214,12 @@ def download_shards(num_shards, data_dir=None, num_workers=1):
         data_dir = get_data_dir()
 
     num_shards = min(num_shards, MAX_SHARD + 1)
-    print(f"Downloading {num_shards} shards to {data_dir}...")
+    logger.info(f"Downloading {num_shards} shards to {data_dir}...")
 
     successful = 0
     for i in range(num_shards):
         if download_shard(i, data_dir) is not None:
             successful += 1
 
-    print(f"Downloaded {successful}/{num_shards} shards")
+    logger.info(f"Downloaded {successful}/{num_shards} shards")
     return successful

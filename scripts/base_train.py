@@ -9,8 +9,11 @@ Or with streaming:
 """
 
 import os
+import sys
 import time
 import argparse
+import logging
+from datetime import datetime
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -21,6 +24,51 @@ from mlxchat.muon import Muon
 from mlxchat.dataloader import DataLoader
 from mlxchat.tokenizer import get_tokenizer
 from mlxchat.checkpoint_manager import save_checkpoint, get_base_dir
+
+
+def setup_logging(log_dir, model_tag):
+    """
+    Setup logging to both file and console with timestamps.
+
+    Args:
+        log_dir: Directory to save log files
+        model_tag: Model tag for log filename
+
+    Returns:
+        logger: Configured logger instance
+    """
+    # Create logs directory
+    os.makedirs(log_dir, exist_ok=True)
+
+    # Create log filename with timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = os.path.join(log_dir, f"train_{model_tag}_{timestamp}.log")
+
+    # Configure root logger
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+
+    # Remove any existing handlers
+    logger.handlers = []
+
+    # Create formatter with timestamp
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+
+    # File handler
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    # Console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+    logger.info(f"Logging to: {log_file}")
+
+    return logger
 
 
 def get_args():
@@ -58,8 +106,10 @@ def get_args():
 
     # Output
     parser.add_argument("--output-dir", type=str, default=None, help="Output directory for checkpoints")
+    parser.add_argument("--log-dir", type=str, default=None, help="Directory for log files")
     parser.add_argument("--model-tag", type=str, default="", help="Model tag for checkpoint directory")
     parser.add_argument("--save-every", type=int, default=10, help="Save checkpoint every N steps")
+    parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint if available")
 
     return parser.parse_args()
 
@@ -105,9 +155,15 @@ def flatten_params(tree, prefix=""):
     return items
 
 
-def setup_optimizers(model, config, args):
+def setup_optimizers(model, config, args, logger):
     """
     Setup dual optimizer system: Muon for matrices, Adam for embeddings/lm_head.
+
+    Args:
+        model: GPT model
+        config: GPTConfig
+        args: Command line arguments
+        logger: Logger instance
 
     Returns:
         tuple: (adam_optimizer, muon_optimizer, param_groups)
@@ -116,7 +172,7 @@ def setup_optimizers(model, config, args):
 
     # Scale learning rates by 1/sqrt(dmodel/768)
     dmodel_lr_scale = (model_dim / 768) ** -0.5
-    print(f"  LR scaling factor (∝1/√(d/{768})): {dmodel_lr_scale:.6f}")
+    logger.info(f"  LR scaling factor (∝1/√(d/{768})): {dmodel_lr_scale:.6f}")
 
     # Flatten parameters with names
     all_params = flatten_params(model.parameters())
@@ -135,9 +191,9 @@ def setup_optimizers(model, config, args):
             # All transformer block parameters
             matrix_params[name] = param
 
-    print(f"  Matrix params: {len(matrix_params)}")
-    print(f"  Embedding params: {len(embedding_params)}")
-    print(f"  LM head params: {len(lm_head_params)}")
+    logger.info(f"  Matrix params: {len(matrix_params)}")
+    logger.info(f"  Embedding params: {len(embedding_params)}")
+    logger.info(f"  LM head params: {len(lm_head_params)}")
 
     # Create Adam optimizer for embeddings and LM head
     adam_params = {**embedding_params, **lm_head_params}
@@ -212,8 +268,14 @@ def evaluate(model, val_loader, eval_steps):
 
             # Forward pass only (no gradients)
             loss = model(inputs, targets=targets)
+
+            # Evaluate immediately to prevent graph buildup
+            mx.eval(loss)
             total_loss += loss.item()
             num_batches += 1
+
+            # Explicit cleanup of inputs/targets
+            del inputs, targets, loss
 
         except StopIteration:
             break
@@ -253,40 +315,40 @@ def clip_gradients(grads, max_norm):
     return clipped_grads, global_norm
 
 
-def print_banner():
-    """Print ASCII art banner for MLXChat."""
-    banner = r"""
-    ███╗   ███╗██╗     ██╗  ██╗ ██████╗██╗  ██╗ █████╗ ████████╗
-    ████╗ ████║██║     ╚██╗██╔╝██╔════╝██║  ██║██╔══██╗╚══██╔══╝
-    ██╔████╔██║██║      ╚███╔╝ ██║     ███████║███████║   ██║
-    ██║╚██╔╝██║██║      ██╔██╗ ██║     ██╔══██║██╔══██║   ██║
-    ██║ ╚═╝ ██║███████╗██╔╝ ██╗╚██████╗██║  ██║██║  ██║   ██║
-    ╚═╝     ╚═╝╚══════╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝
-    """
-    print(banner)
-    print("=" * 80)
-
-
 def main():
     args = get_args()
 
-    print_banner()
+    # Determine model tag early for logging setup
+    if not args.model_tag:
+        args.model_tag = f"d{args.depth}"
+
+    # Setup logging directory
+    if args.log_dir is None:
+        base_dir = get_base_dir()
+        args.log_dir = os.path.join(base_dir, "logs")
+
+    # Initialize logging
+    logger = setup_logging(args.log_dir, args.model_tag)
+
+    logger.info("=" * 80)
+    logger.info("MLXChat Training Starting")
+    logger.info("=" * 80)
 
     # Load tokenizer
     tokenizer = get_tokenizer(args.tokenizer_dir)
     vocab_size = tokenizer.get_vocab_size()
-    print(f"Vocab size: {vocab_size:,}")
+    logger.info(f"Vocab size: {vocab_size:,}")
 
     # Get model configuration
     config = get_model_config(args.depth, args.max_seq_len, vocab_size)
-    print("\nModel Configuration:")
-    print(f"  Layers: {config.n_layer}")
-    print(f"  Model dim: {config.n_embd}")
-    print(f"  Num heads: {config.n_head}")
-    print(f"  Num KV heads: {config.n_kv_head}")
+    logger.info("\nModel Configuration:")
+    logger.info(f"  Layers: {config.n_layer}")
+    logger.info(f"  Model dim: {config.n_embd}")
+    logger.info(f"  Num heads: {config.n_head}")
+    logger.info(f"  Num KV heads: {config.n_kv_head}")
 
     # Create model
-    print("\nInitializing model...")
+    logger.info("\nInitializing model...")
     model = GPT(config)
     model.init_weights()
 
@@ -304,30 +366,30 @@ def main():
         return total
 
     num_params = count_params(model.parameters())
-    print(f"  Number of parameters: {num_params:,}")
+    logger.info(f"  Number of parameters: {num_params:,}")
 
     # Calculate training horizon
     tokens_per_batch = args.device_batch_size * args.max_seq_len
     grad_accum_steps = args.total_batch_size // tokens_per_batch
-    print("\nBatch Configuration:")
-    print(f"  Device batch size: {args.device_batch_size}")
-    print(f"  Tokens per batch: {tokens_per_batch:,}")
-    print(f"  Total batch size: {args.total_batch_size:,}")
-    print(f"  Gradient accumulation steps: {grad_accum_steps}")
+    logger.info("\nBatch Configuration:")
+    logger.info(f"  Device batch size: {args.device_batch_size}")
+    logger.info(f"  Tokens per batch: {tokens_per_batch:,}")
+    logger.info(f"  Total batch size: {args.total_batch_size:,}")
+    logger.info(f"  Gradient accumulation steps: {grad_accum_steps}")
 
     if args.num_iterations > 0:
         num_iterations = args.num_iterations
-        print(f"\nUsing specified number of iterations: {num_iterations:,}")
+        logger.info(f"\nUsing specified number of iterations: {num_iterations:,}")
     else:
         target_tokens = args.target_param_data_ratio * num_params
         num_iterations = int(target_tokens // args.total_batch_size)
-        print(f"\nCalculating iterations from data:param ratio {args.target_param_data_ratio}:")
-        print(f"  Target tokens: {target_tokens:,}")
-        print(f"  Number of iterations: {num_iterations:,}")
+        logger.info(f"\nCalculating iterations from data:param ratio {args.target_param_data_ratio}:")
+        logger.info(f"  Target tokens: {target_tokens:,}")
+        logger.info(f"  Number of iterations: {num_iterations:,}")
 
     total_tokens = args.total_batch_size * num_iterations
-    print(f"  Total training tokens: {total_tokens:,}")
-    print(f"  Tokens:Params ratio: {total_tokens / num_params:.2f}")
+    logger.info(f"  Total training tokens: {total_tokens:,}")
+    logger.info(f"  Tokens:Params ratio: {total_tokens / num_params:.2f}")
 
     # Setup checkpoint directory
     if args.output_dir is None:
@@ -339,21 +401,21 @@ def main():
         args.model_tag = f"d{args.depth}"
 
     checkpoint_dir = os.path.join(args.output_dir, args.model_tag)
-    print(f"\nCheckpoint directory: {checkpoint_dir}")
-    print(f"  Model tag: {args.model_tag}")
-    print(f"  Save every: {args.save_every} steps")
+    logger.info(f"\nCheckpoint directory: {checkpoint_dir}")
+    logger.info(f"  Model tag: {args.model_tag}")
+    logger.info(f"  Save every: {args.save_every} steps")
 
     # Setup optimizers
-    print("\nSetting up optimizers...")
-    adam_opt, muon_opt, param_groups = setup_optimizers(model, config, args)
+    logger.info("\nSetting up optimizers...")
+    adam_opt, muon_opt, param_groups = setup_optimizers(model, config, args, logger)
     # param_groups is a dict with "adam" and "muon" keys
     adam_params = param_groups["adam"]
     muon_params = param_groups["muon"]
 
     # Setup dataloaders
-    print("\nSetting up dataloaders...")
+    logger.info("\nSetting up dataloaders...")
     if args.streaming:
-        print(f"  Streaming mode enabled: max {args.max_cached_shards} shards cached")
+        logger.info(f"  Streaming mode enabled: max {args.max_cached_shards} shards cached")
 
     train_loader = DataLoader(
         batch_size=args.device_batch_size,
@@ -378,7 +440,7 @@ def main():
 
     # Calculate validation steps from eval_tokens
     eval_steps = max(1, args.eval_tokens // (args.device_batch_size * args.max_seq_len))
-    print(f"  Validation steps per eval: {eval_steps}")
+    logger.info(f"  Validation steps per eval: {eval_steps}")
 
     # Training state
     smooth_train_loss = 0.0
@@ -387,20 +449,62 @@ def main():
     total_training_time = 0.0
     training_start_time = time.time()
     avg_step_time = None  # Running average of step time
+    start_step = 0  # Starting step (0 for fresh training, or loaded from checkpoint)
 
-    print(f"\n{'='*80}")
-    print("Starting Training")
-    print(f"{'='*80}\n")
+    # Check for checkpoint resumption
+    if args.resume and os.path.exists(checkpoint_dir):
+        from mlxchat.checkpoint_manager import load_checkpoint, find_last_step
+
+        try:
+            last_step = find_last_step(checkpoint_dir)
+            logger.info(f"\n{'='*80}")
+            logger.info(f"Resuming from checkpoint at step {last_step}")
+            logger.info(f"{'='*80}\n")
+
+            # Load checkpoint
+            model_data, optimizer_data, meta_data = load_checkpoint(checkpoint_dir, last_step, load_optimizer=True)
+
+            # Restore model weights
+            model.update(model_data)
+            logger.info(f"  Loaded model weights from step {last_step}")
+
+            # Restore optimizer states
+            if optimizer_data:
+                if "adam" in optimizer_data:
+                    adam_opt.state = optimizer_data["adam"]
+                    logger.info("  Loaded Adam optimizer state")
+                if "muon" in optimizer_data:
+                    muon_opt.state = optimizer_data["muon"]
+                    logger.info("  Loaded Muon optimizer state")
+
+            # Restore training state
+            if "loss" in meta_data:
+                smooth_train_loss = meta_data["loss"]
+
+            # Start from next step
+            start_step = last_step + 1
+            logger.info(f"  Resuming training from step {start_step}\n")
+
+        except Exception as e:
+            logger.info(f"Warning: Failed to load checkpoint: {e}")
+            logger.info("Starting fresh training from step 0\n")
+            start_step = 0
+    else:
+        if args.resume:
+            logger.info(f"No checkpoint found in {checkpoint_dir}, starting fresh training\n")
+
+    logger.info(f"\n{'='*80}")
+    logger.info("Starting Training")
+    logger.info(f"{'='*80}\n")
 
     # Training loop
     train_iter = iter(train_loader)
 
-    for step in range(num_iterations + 1):
+    for step in range(start_step, num_iterations + 1):
         last_step = step == num_iterations
 
         # Training step (do this FIRST, before checkpoint/eval)
         if not last_step:
-            mx.eval(model.parameters())  # Ensure all params are evaluated
             t0 = time.time()
 
             # Gradient accumulation
@@ -425,9 +529,11 @@ def main():
                 else:
                     accum_grads = grads
 
-                # Clean up
-                del grads
-                mx.eval(accum_grads)
+                # Evaluate incrementally to avoid memory buildup
+                mx.eval(loss, accum_grads)
+
+                # Cleanup micro-step intermediates
+                del loss, grads
 
             # Average loss and gradients over accumulation steps
             train_loss = total_loss / grad_accum_steps
@@ -490,13 +596,14 @@ def main():
                 if "lm_head" in adam_grads:
                     adam_params["lm_head"] = model.lm_head
                 adam_opt.update(adam_params, adam_grads)
+                # Evaluate immediately for better incremental computation
+                mx.eval(adam_params, adam_opt.state)
 
             if muon_grads:
                 muon_params = {"h": model.h}
                 muon_opt.update(muon_params, muon_grads)
-
-            # Evaluate model and optimizer states
-            mx.eval(model.parameters(), adam_opt.state, muon_opt.state)
+                # Evaluate immediately for better incremental computation
+                mx.eval(muon_params, muon_opt.state)
 
             t1 = time.time()
             dt = t1 - t0
@@ -513,6 +620,9 @@ def main():
             # EMA smoothing
             smooth_train_loss = ema_beta * smooth_train_loss + (1 - ema_beta) * train_loss
             debiased_loss = smooth_train_loss / (1 - ema_beta ** (step + 1))
+
+            # Explicit cleanup of training step intermediates
+            del accum_grads, adam_grads, muon_grads
 
             # Calculate time estimates
             steps_remaining = num_iterations - step
@@ -535,16 +645,16 @@ def main():
             pct_done = 100 * step / num_iterations
             tok_per_sec = int(tokens_per_batch / dt)
             elapsed_min = total_training_time / 60
-            print(
+            logger.info(f"\n{'='*80}")
+            logger.info(
                 f"step {step:05d}/{num_iterations:05d} ({pct_done:.2f}%) | "
                 f"loss: {debiased_loss:.6f} | dt: {dt*1000:.2f}ms | "
                 f"tok/sec: {tok_per_sec:,} | elapsed: {elapsed_min:.2f}m | eta: {eta_str}"
             )
+            logger.info(f"{'='*80}")
 
         # Checkpoint saving (after training step)
         if step > 0 and (step % args.save_every == 0 or last_step):
-            print(f"\nSaving checkpoint at step {step}...")
-
             # Prepare metadata
             meta_data = {
                 "step": step,
@@ -574,24 +684,31 @@ def main():
 
             # Save checkpoint
             save_checkpoint(checkpoint_dir, step, model, optimizer_data, meta_data)
-            print("Checkpoint saved successfully")
+            logger.info(f"Checkpoint saved at step {step}")
+
+            # Cleanup checkpoint data
+            del optimizer_data, meta_data
 
         # Validation evaluation (after training step)
         if step > 0 and step % args.eval_every == 0:
-            print(f"\nEvaluating at step {step}...")
             val_loss = evaluate(model, val_loader, eval_steps)
-            print(f"Validation loss: {val_loss:.6f}")
+            logger.info(f"Validation loss: {val_loss:.6f}")
 
             # Update min validation loss
             if val_loss < min_val_loss:
                 min_val_loss = val_loss
-                print("New best validation loss!")
+                logger.info(f"New best validation loss: {val_loss:.6f}")
 
-    print(f"\n{'='*80}")
-    print("Training Complete")
-    print(f"  Total time: {total_training_time/60:.2f} minutes")
-    print(f"  Min validation loss: {min_val_loss:.4f}")
-    print(f"{'='*80}")
+            # Force garbage collection after evaluation
+            import gc
+
+            gc.collect()
+
+    logger.info(f"\n{'='*80}")
+    logger.info("Training Complete")
+    logger.info(f"  Total time: {total_training_time/60:.2f} minutes")
+    logger.info(f"  Min validation loss: {min_val_loss:.4f}")
+    logger.info(f"{'='*80}")
 
 
 if __name__ == "__main__":

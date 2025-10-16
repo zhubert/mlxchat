@@ -6,10 +6,13 @@ Returns MLX arrays for compatibility with the rest of the codebase.
 """
 
 import os
+import logging
 import pickle
 from functools import lru_cache
 
 import mlx.core as mx
+
+logger = logging.getLogger(__name__)
 
 
 # Special tokens from nanochat
@@ -183,7 +186,7 @@ def get_tokenizer(tokenizer_dir=None):
     """
     Get the mlxchat tokenizer.
 
-    By default, looks for nanochat's tokenizer in ~/.cache/nanochat/tokenizer.
+    By default, looks for the tokenizer in ~/.cache/mlxchat/tokenizer.
     If not found, falls back to tiktoken's GPT-2 tokenizer (vocab_size=50257).
     You can override this by providing a custom tokenizer_dir.
 
@@ -194,18 +197,18 @@ def get_tokenizer(tokenizer_dir=None):
         Tokenizer instance
     """
     if tokenizer_dir is None:
-        # Use nanochat's tokenizer by default
+        # Use mlxchat's tokenizer by default
         home = os.path.expanduser("~")
-        tokenizer_dir = os.path.join(home, ".cache", "nanochat", "tokenizer")
+        tokenizer_dir = os.path.join(home, ".cache", "mlxchat", "tokenizer")
 
-    # Try to load nanochat's trained tokenizer
+    # Try to load trained tokenizer
     pickle_path = os.path.join(tokenizer_dir, "tokenizer.pkl")
     if os.path.exists(pickle_path):
         return Tokenizer.from_directory(tokenizer_dir)
 
     # Fallback to tiktoken's GPT-2 tokenizer
-    print(f"Warning: Nanochat tokenizer not found at {pickle_path}")
-    print("Falling back to tiktoken's GPT-2 tokenizer (vocab_size=50257)")
-    print("Note: This is fine for testing, but for production training you should")
-    print("train a custom tokenizer with nanochat's tok_train.py script.")
+    logger.warning(f"Tokenizer not found at {pickle_path}")
+    logger.warning("Falling back to tiktoken's GPT-2 tokenizer (vocab_size=50257)")
+    logger.info("Note: This is fine for testing, but for production training you should")
+    logger.info("train a custom tokenizer with: make train-tokenizer")
     return Tokenizer.from_pretrained("gpt2")

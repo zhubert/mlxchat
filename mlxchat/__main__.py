@@ -6,7 +6,12 @@ Usage:
 """
 
 import argparse
+import logging
 from mlxchat.dataset import download_shards, get_data_dir
+
+# Configure logging for CLI
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -28,24 +33,22 @@ def main():
 
     data_dir = args.data_dir if args.data_dir else get_data_dir()
 
-    print("mlxchat Dataset Downloader")
-    print("=" * 50)
-    print(f"Downloading {args.num_shards} shards...")
-    print(f"Target directory: {data_dir}")
-    print(f"Estimated size: ~{args.num_shards * 0.165:.1f} GB")
-    print()
+    logger.info("mlxchat Dataset Downloader")
+    logger.info("=" * 50)
+    logger.info(f"Downloading {args.num_shards} shards...")
+    logger.info(f"Target directory: {data_dir}")
+    logger.info(f"Estimated size: ~{args.num_shards * 0.165:.1f} GB")
 
     successful = download_shards(args.num_shards, data_dir)
 
-    print()
-    print("=" * 50)
-    print(f"Download complete: {successful}/{args.num_shards} shards")
+    logger.info("=" * 50)
+    logger.info(f"Download complete: {successful}/{args.num_shards} shards")
 
     if successful < args.num_shards:
-        print(f"Warning: Failed to download {args.num_shards - successful} shards")
+        logger.warning(f"Failed to download {args.num_shards - successful} shards")
         return 1
 
-    print("Ready to train! Use: python -m scripts.base_train")
+    logger.info("Ready to train! Use: python -m scripts.base_train")
     return 0
 
 
