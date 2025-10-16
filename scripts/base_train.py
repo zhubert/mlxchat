@@ -384,6 +384,8 @@ def main():
     ema_beta = 0.9
     min_val_loss = float("inf")
     total_training_time = 0.0
+    training_start_time = time.time()
+    avg_step_time = None  # Running average of step time
 
     print(f"\n{'='*80}")
     print("Starting Training")
@@ -395,7 +397,153 @@ def main():
     for step in range(num_iterations + 1):
         last_step = (step == num_iterations)
 
-        # Checkpoint saving
+        # Training step (do this FIRST, before checkpoint/eval)
+        if not last_step:
+            mx.eval(model.parameters())  # Ensure all params are evaluated
+            t0 = time.time()
+
+            # Gradient accumulation
+            from mlx.utils import tree_map, tree_flatten
+
+            accum_grads = None
+            total_loss = 0.0
+
+            for micro_step in range(grad_accum_steps):
+                inputs, targets = next(train_iter)
+
+                # Forward and backward
+                loss_and_grad_fn = nn.value_and_grad(model, loss_fn)
+                loss, grads = loss_and_grad_fn(model, inputs, targets)
+
+                # Accumulate loss
+                total_loss += loss.item()
+
+                # Accumulate gradients
+                if accum_grads is not None:
+                    accum_grads = tree_map(mx.add, grads, accum_grads)
+                else:
+                    accum_grads = grads
+
+                # Clean up
+                del grads
+                mx.eval(accum_grads)
+
+            # Average loss and gradients over accumulation steps
+            train_loss = total_loss / grad_accum_steps
+            accum_grads = tree_map(lambda g: g / grad_accum_steps, accum_grads)
+
+            # Gradient clipping
+            if args.grad_clip > 0.0:
+                accum_grads, grad_norm = clip_gradients(accum_grads, args.grad_clip)
+
+            # Learning rate scheduling
+            lr_mult = get_lr_multiplier(step, num_iterations)
+            muon_momentum = get_muon_momentum(step)
+
+            # Update Adam learning rate
+            adam_opt.learning_rate = args.unembedding_lr * lr_mult * ((config.n_embd / 768) ** -0.5)
+
+            # Update Muon learning rate and momentum
+            muon_opt.learning_rate = args.matrix_lr * lr_mult
+            muon_opt.momentum = muon_momentum
+
+            # Split gradients by parameter group
+            # accum_grads is a nested dict matching model structure
+            # We need to apply different optimizers to different parts
+
+            # For simplicity, we'll update all parameters with their respective optimizers
+            # by filtering the gradient tree
+            def filter_grads(grad_tree, param_tree, filter_fn):
+                """Filter gradients based on parameter names."""
+                filtered = {}
+                for key in grad_tree:
+                    if isinstance(grad_tree[key], dict):
+                        filtered[key] = filter_grads(grad_tree[key], param_tree[key], filter_fn)
+                    else:
+                        if filter_fn(key):
+                            filtered[key] = grad_tree[key]
+                return filtered
+
+            # Split parameters and gradients
+            # Adam: wte (embeddings) and lm_head
+            # Muon: everything else (transformer blocks)
+
+            # Create filtered gradient dictionaries
+            adam_grad_keys = {"wte", "lm_head"}
+            muon_grad_keys = {"h"}  # transformer blocks
+
+            # Filter gradients for Adam (embeddings + lm_head)
+            adam_grads = {}
+            if "wte" in accum_grads:
+                adam_grads["wte"] = accum_grads["wte"]
+            if "lm_head" in accum_grads:
+                adam_grads["lm_head"] = accum_grads["lm_head"]
+
+            # Filter gradients for Muon (transformer blocks)
+            muon_grads = {}
+            if "h" in accum_grads:
+                muon_grads["h"] = accum_grads["h"]
+
+            # Update parameters with each optimizer
+            # Note: optimizer.update expects (params_dict, grads_dict)
+            if adam_grads:
+                adam_params = {}
+                if "wte" in adam_grads:
+                    adam_params["wte"] = model.wte
+                if "lm_head" in adam_grads:
+                    adam_params["lm_head"] = model.lm_head
+                adam_opt.update(adam_params, adam_grads)
+
+            if muon_grads:
+                muon_params = {"h": model.h}
+                muon_opt.update(muon_params, muon_grads)
+
+            # Evaluate model and optimizer states
+            mx.eval(model.parameters(), adam_opt.state, muon_opt.state)
+
+            t1 = time.time()
+            dt = t1 - t0
+            total_training_time = time.time() - training_start_time
+
+            # Update running average of step time (after warmup)
+            if step >= 10:
+                if avg_step_time is None:
+                    avg_step_time = dt
+                else:
+                    # Exponential moving average with alpha=0.1
+                    avg_step_time = 0.9 * avg_step_time + 0.1 * dt
+
+            # EMA smoothing
+            smooth_train_loss = ema_beta * smooth_train_loss + (1 - ema_beta) * train_loss
+            debiased_loss = smooth_train_loss / (1 - ema_beta ** (step + 1))
+
+            # Calculate time estimates
+            steps_remaining = num_iterations - step
+            if avg_step_time is not None and steps_remaining > 0:
+                time_remaining_sec = avg_step_time * steps_remaining
+                time_remaining_min = time_remaining_sec / 60
+                time_remaining_hrs = time_remaining_min / 60
+
+                # Format time remaining nicely
+                if time_remaining_hrs >= 1:
+                    eta_str = f"{time_remaining_hrs:.1f}h"
+                elif time_remaining_min >= 1:
+                    eta_str = f"{time_remaining_min:.1f}m"
+                else:
+                    eta_str = f"{time_remaining_sec:.0f}s"
+            else:
+                eta_str = "calculating..."
+
+            # Logging
+            if step % 10 == 0:
+                pct_done = 100 * step / num_iterations
+                tok_per_sec = int(tokens_per_batch / dt)
+                elapsed_min = total_training_time / 60
+                print(f"step {step:05d}/{num_iterations:05d} ({pct_done:.2f}%) | "
+                      f"loss: {debiased_loss:.6f} | dt: {dt*1000:.2f}ms | "
+                      f"tok/sec: {tok_per_sec:,} | elapsed: {elapsed_min:.2f}m | eta: {eta_str}")
+
+        # Checkpoint saving (after training step)
         if step > 0 and (step % args.save_every == 0 or last_step):
             print(f"\nSaving checkpoint at step {step}...")
 
@@ -430,7 +578,7 @@ def main():
             save_checkpoint(checkpoint_dir, step, model, optimizer_data, meta_data)
             print(f"Checkpoint saved successfully")
 
-        # Validation evaluation
+        # Validation evaluation (after training step)
         if step > 0 and step % args.eval_every == 0:
             print(f"\nEvaluating at step {step}...")
             val_loss = evaluate(model, val_loader, eval_steps)
@@ -440,130 +588,6 @@ def main():
             if val_loss < min_val_loss:
                 min_val_loss = val_loss
                 print(f"New best validation loss!")
-
-        if last_step:
-            break
-
-        # Training step
-        mx.eval(model.parameters())  # Ensure all params are evaluated
-        t0 = time.time()
-
-        # Gradient accumulation
-        from mlx.utils import tree_map, tree_flatten
-
-        accum_grads = None
-        total_loss = 0.0
-
-        for micro_step in range(grad_accum_steps):
-            inputs, targets = next(train_iter)
-
-            # Forward and backward
-            loss_and_grad_fn = nn.value_and_grad(model, loss_fn)
-            loss, grads = loss_and_grad_fn(model, inputs, targets)
-
-            # Accumulate loss
-            total_loss += loss.item()
-
-            # Accumulate gradients
-            if accum_grads is not None:
-                accum_grads = tree_map(mx.add, grads, accum_grads)
-            else:
-                accum_grads = grads
-
-            # Clean up
-            del grads
-            mx.eval(accum_grads)
-
-        # Average loss and gradients over accumulation steps
-        train_loss = total_loss / grad_accum_steps
-        accum_grads = tree_map(lambda g: g / grad_accum_steps, accum_grads)
-
-        # Gradient clipping
-        if args.grad_clip > 0.0:
-            accum_grads, grad_norm = clip_gradients(accum_grads, args.grad_clip)
-
-        # Learning rate scheduling
-        lr_mult = get_lr_multiplier(step, num_iterations)
-        muon_momentum = get_muon_momentum(step)
-
-        # Update Adam learning rate
-        adam_opt.learning_rate = args.unembedding_lr * lr_mult * ((config.n_embd / 768) ** -0.5)
-
-        # Update Muon learning rate and momentum
-        muon_opt.learning_rate = args.matrix_lr * lr_mult
-        muon_opt.momentum = muon_momentum
-
-        # Split gradients by parameter group
-        # accum_grads is a nested dict matching model structure
-        # We need to apply different optimizers to different parts
-
-        # For simplicity, we'll update all parameters with their respective optimizers
-        # by filtering the gradient tree
-        def filter_grads(grad_tree, param_tree, filter_fn):
-            """Filter gradients based on parameter names."""
-            filtered = {}
-            for key in grad_tree:
-                if isinstance(grad_tree[key], dict):
-                    filtered[key] = filter_grads(grad_tree[key], param_tree[key], filter_fn)
-                else:
-                    if filter_fn(key):
-                        filtered[key] = grad_tree[key]
-            return filtered
-
-        # Split parameters and gradients
-        # Adam: wte (embeddings) and lm_head
-        # Muon: everything else (transformer blocks)
-
-        # Create filtered gradient dictionaries
-        adam_grad_keys = {"wte", "lm_head"}
-        muon_grad_keys = {"h"}  # transformer blocks
-
-        # Filter gradients for Adam (embeddings + lm_head)
-        adam_grads = {}
-        if "wte" in accum_grads:
-            adam_grads["wte"] = accum_grads["wte"]
-        if "lm_head" in accum_grads:
-            adam_grads["lm_head"] = accum_grads["lm_head"]
-
-        # Filter gradients for Muon (transformer blocks)
-        muon_grads = {}
-        if "h" in accum_grads:
-            muon_grads["h"] = accum_grads["h"]
-
-        # Update parameters with each optimizer
-        # Note: optimizer.update expects (params_dict, grads_dict)
-        if adam_grads:
-            adam_params = {}
-            if "wte" in adam_grads:
-                adam_params["wte"] = model.wte
-            if "lm_head" in adam_grads:
-                adam_params["lm_head"] = model.lm_head
-            adam_opt.update(adam_params, adam_grads)
-
-        if muon_grads:
-            muon_params = {"h": model.h}
-            muon_opt.update(muon_params, muon_grads)
-
-        # Evaluate model and optimizer states
-        mx.eval(model.parameters(), adam_opt.state, muon_opt.state)
-
-        t1 = time.time()
-        dt = t1 - t0
-
-        if step > 10:
-            total_training_time += dt
-
-        # EMA smoothing
-        smooth_train_loss = ema_beta * smooth_train_loss + (1 - ema_beta) * train_loss
-        debiased_loss = smooth_train_loss / (1 - ema_beta ** (step + 1))
-
-        # Logging
-        if step % 10 == 0:
-            pct_done = 100 * step / num_iterations
-            tok_per_sec = int(tokens_per_batch / dt)
-            print(f"step {step:05d}/{num_iterations:05d} ({pct_done:.2f}%) | "
-                  f"loss: {debiased_loss:.6f} | dt: {dt*1000:.2f}ms | "
-                  f"tok/sec: {tok_per_sec:,} | total time: {total_training_time/60:.2f}m")
 
     print(f"\n{'='*80}")
     print("Training Complete")
