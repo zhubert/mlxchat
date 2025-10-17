@@ -102,7 +102,7 @@ test-dataloader:
 
 # Training targets
 DEPTH ?= 12
-BATCH_SIZE ?= 4
+BATCH_SIZE ?= 8
 TOTAL_BATCH_SIZE ?= 16384
 STEPS ?= -1
 CACHED_SHARDS ?= 20

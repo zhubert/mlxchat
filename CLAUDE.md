@@ -53,12 +53,18 @@ python -m scripts.base_train --depth=12
 
 ### Training
 ```bash
-# Train a small model (d12, 186M params)
-python -m scripts.base_train --depth=12 --device_batch_size=4
+# Train a small model (d12, 186M params) - RECOMMENDED
+python -m scripts.base_train --depth=12 --device-batch-size=8 --streaming
 
 # Train larger models (adjust depth: 12/16/20/26)
-python -m scripts.base_train --depth=20 --device_batch_size=2
+python -m scripts.base_train --depth=16 --device-batch-size=6 --streaming
+python -m scripts.base_train --depth=20 --device-batch-size=4 --streaming
 ```
+
+**Performance (d12 model):**
+- ~1,280 tokens/sec with batch_size=8 (recommended)
+- ~13 seconds per training step
+- No gradient accumulation needed (single-step batches)
 
 ### Inference
 ```bash

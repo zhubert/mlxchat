@@ -82,7 +82,7 @@ make train-d16      # 336M params
 make train-d20      # 561M params
 
 # Custom training
-make train DEPTH=12 STEPS=500 BATCH_SIZE=4
+make train DEPTH=12 STEPS=500 BATCH_SIZE=8
 
 # After training, chat with your model
 make chat-cli       # Terminal interface
@@ -105,13 +105,14 @@ uv run python -u -m scripts.base_train \
 # Full training with streaming (recommended)
 uv run python -u -m scripts.base_train \
   --depth=12 \
+  --device-batch-size=8 \
   --streaming \
   --max-cached-shards 20
 
 # Train larger model with custom batch size
 uv run python -u -m scripts.base_train \
   --depth=16 \
-  --device-batch-size 6 \
+  --device-batch-size=6 \
   --streaming
 
 # Download shards manually (optional)

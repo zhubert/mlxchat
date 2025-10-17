@@ -29,7 +29,7 @@ Uses 6-10 GB, trains d12 (186M params)
 ```bash
 make train
 ```
-Standard training (15-25 GB)
+Standard training (~90 MB with batch_size=8, optimal performance)
 
 ### Monitor Memory (Optional)
 Open a second terminal:
