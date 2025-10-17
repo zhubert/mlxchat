@@ -90,14 +90,19 @@ def parquets_iter_batched(split, data_dir, shard_cache=None):
             shard_indices = range(0, MAX_SHARD)  # All but last
         else:
             shard_indices = [MAX_SHARD]  # Last shard only
+            logger.info(f"Validation mode: accessing shard {MAX_SHARD}")
 
         for shard_idx in shard_indices:
+            logger.info(f"Accessing shard {shard_idx} for {split} split...")
             filepath = shard_cache.get_shard_path(shard_idx)
             if filepath is None:
                 logger.warning(f"Failed to get shard {shard_idx}, skipping")
                 continue
 
+            logger.info(f"Opening parquet file: {filepath}")
             pf = pq.ParquetFile(filepath)
+            logger.info(f"Shard {shard_idx} has {pf.num_row_groups} row groups")
+
             for rg_idx in range(pf.num_row_groups):
                 rg = pf.read_row_group(rg_idx)
                 texts = rg.column("text").to_pylist()

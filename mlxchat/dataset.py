@@ -144,6 +144,8 @@ class ShardCache:
             result = download_shard(shard_index, self.data_dir)
             if result is None:
                 return None
+        else:
+            logger.info(f"Shard {shard_index} found in cache: {filepath}")
 
         # Update access order for LRU
         if shard_index in self.access_order:
@@ -152,7 +154,9 @@ class ShardCache:
 
         # Clean up old shards if needed
         if self.enable_cache_cleanup:
+            logger.info(f"Running cache cleanup check (max: {self.max_shards} shards)...")
             self._cleanup_if_needed()
+            logger.info("Cache cleanup complete")
 
         return filepath
 

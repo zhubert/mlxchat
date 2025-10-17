@@ -53,19 +53,23 @@ def setup_logging(log_dir, model_tag):
     # Remove any existing handlers
     logger.handlers = []
 
-    # Create formatter with timestamp
-    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+    # Create formatters
+    # File handler gets full formatting with timestamp and level
+    file_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+
+    # Console handler gets message only
+    console_formatter = logging.Formatter("%(message)s")
 
     # File handler
     file_handler = logging.FileHandler(log_file)
     file_handler.setLevel(logging.INFO)
-    file_handler.setFormatter(formatter)
+    file_handler.setFormatter(file_formatter)
     logger.addHandler(file_handler)
 
     # Console handler
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(formatter)
+    console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
 
     logger.info(f"Logging to: {log_file}")
@@ -267,6 +271,7 @@ def evaluate(model, val_loader, eval_steps):
     Returns:
         Average validation loss
     """
+    eval_logger = logging.getLogger()
     model.eval()  # Set to eval mode (though MLX doesn't have dropout/batchnorm)
 
     total_loss = 0.0
@@ -274,9 +279,18 @@ def evaluate(model, val_loader, eval_steps):
 
     val_iter = iter(val_loader)
 
-    for _ in range(eval_steps):
+    # Log progress at 25%, 50%, 75% intervals
+    log_intervals = {int(eval_steps * 0.25), int(eval_steps * 0.5), int(eval_steps * 0.75)}
+
+    for i in range(eval_steps):
         try:
+            if i == 0:
+                eval_logger.info("  Loading first validation batch...")
+
             inputs, targets = next(val_iter)
+
+            if i == 0:
+                eval_logger.info("  First batch loaded, computing loss...")
 
             # Forward pass only (no gradients)
             loss = model(inputs, targets=targets)
@@ -286,10 +300,17 @@ def evaluate(model, val_loader, eval_steps):
             total_loss += loss.item()
             num_batches += 1
 
+            # Log progress at intervals
+            if i + 1 in log_intervals:
+                pct = int((i + 1) / eval_steps * 100)
+                avg_loss = total_loss / num_batches
+                eval_logger.info(f"  Validation progress: {i+1}/{eval_steps} ({pct}%), avg loss: {avg_loss:.6f}")
+
             # Explicit cleanup of inputs/targets
             del inputs, targets, loss
 
         except StopIteration:
+            eval_logger.warning(f"  Validation data exhausted at batch {i}/{eval_steps}")
             break
 
     model.train()  # Set back to train mode
@@ -368,15 +389,15 @@ def check_memory_limit(memory_limit_gb, logger, step):
     mem_stats = get_memory_usage()
 
     if memory_limit_gb is not None and mem_stats["system_used_gb"] > memory_limit_gb:
-        logger.error("=" * 80)
+        logger.error("")
         logger.error("MEMORY LIMIT EXCEEDED - ABORTING TRAINING")
-        logger.error("=" * 80)
+        logger.error("")
         logger.error(f"Step: {step}")
         logger.error(f"Memory limit: {memory_limit_gb:.2f} GB")
         logger.error(f"System memory used: {mem_stats['system_used_gb']:.2f} GB ({mem_stats['system_percent']:.1f}%)")
         logger.error(f"Process memory used: {mem_stats['process_used_gb']:.2f} GB")
         logger.error(f"System memory available: {mem_stats['system_available_gb']:.2f} GB")
-        logger.error("=" * 80)
+        logger.error("")
         raise MemoryError(
             f"Memory usage ({mem_stats['system_used_gb']:.2f} GB) exceeded limit ({memory_limit_gb:.2f} GB)"
         )
@@ -389,10 +410,10 @@ def main():
 
     # Apply low-memory mode settings
     if args.low_memory:
-        print("=" * 80)
+        print("")
         print("LOW MEMORY MODE ENABLED")
         print("Applying aggressive memory optimization settings...")
-        print("=" * 80)
+        print("")
 
         # Force minimal batch sizes
         if args.device_batch_size > 2:
@@ -418,7 +439,7 @@ def main():
             print(f"  Reducing eval_tokens: {args.eval_tokens} → 524288")
             args.eval_tokens = 524288
 
-        print("=" * 80)
+        print("")
         print()
 
     # Determine model tag early for logging setup
@@ -433,9 +454,9 @@ def main():
     # Initialize logging
     logger = setup_logging(args.log_dir, args.model_tag)
 
-    logger.info("=" * 80)
+    logger.info("")
     logger.info("MLXChat Training Starting")
-    logger.info("=" * 80)
+    logger.info("")
 
     # Load tokenizer
     tokenizer = get_tokenizer(args.tokenizer_dir)
@@ -557,9 +578,9 @@ def main():
 
         try:
             last_step = find_last_step(checkpoint_dir)
-            logger.info(f"\n{'='*80}")
+            logger.info("")
             logger.info(f"Resuming from checkpoint at step {last_step}")
-            logger.info(f"{'='*80}\n")
+            logger.info("")
 
             # Load checkpoint
             model_data, optimizer_data, meta_data = load_checkpoint(checkpoint_dir, last_step, load_optimizer=True)
@@ -616,9 +637,9 @@ def main():
     peak_memory = initial_mem["system_used_gb"]
     peak_process_memory = initial_mem["process_used_gb"]
 
-    logger.info(f"\n{'='*80}")
+    logger.info("")
     logger.info("Starting Training")
-    logger.info(f"{'='*80}\n")
+    logger.info("")
 
     # Training loop
     train_iter = iter(train_loader)
@@ -868,13 +889,13 @@ def main():
             pct_done = 100 * step / num_iterations
             tok_per_sec = int(tokens_per_batch / dt)
             elapsed_min = total_training_time / 60
-            logger.info(f"\n{'='*80}")
+            logger.info("")
             logger.info(
                 f"step {step:05d}/{num_iterations:05d} ({pct_done:.2f}%) | "
                 f"loss: {debiased_loss:.6f} | dt: {dt*1000:.2f}ms | "
                 f"tok/sec: {tok_per_sec:,} | elapsed: {elapsed_min:.2f}m | eta: {eta_str}"
             )
-            logger.info(f"{'='*80}")
+            logger.info("")
 
             # Profiling output
             if args.profile:
@@ -961,8 +982,9 @@ def main():
 
         # Validation evaluation (after training step)
         if step > 0 and step % args.eval_every == 0:
+            logger.info(f"Starting validation at step {step} ({eval_steps} batches)...")
             val_loss = evaluate(model, val_loader, eval_steps)
-            logger.info(f"Validation loss: {val_loss:.6f}")
+            logger.info(f"Validation complete. Loss: {val_loss:.6f}")
 
             # Update min validation loss
             if val_loss < min_val_loss:
@@ -975,17 +997,18 @@ def main():
     # Final memory report
     final_mem = get_memory_usage()
 
-    logger.info(f"\n{'='*80}")
+    logger.info("")
     logger.info("Training Complete")
     logger.info(f"  Total time: {total_training_time/60:.2f} minutes")
     logger.info(f"  Min validation loss: {min_val_loss:.4f}")
-    logger.info("\nMemory Summary:")
+    logger.info("")
+    logger.info("Memory Summary:")
     logger.info(f"  Initial memory: {initial_mem['system_used_gb']:.2f} GB")
     logger.info(f"  Final memory: {final_mem['system_used_gb']:.2f} GB")
     logger.info(f"  Peak memory: {peak_memory:.2f} GB")
     logger.info(f"  Peak process memory: {peak_process_memory:.2f} GB")
     logger.info(f"  Memory limit: {args.memory_limit_gb:.2f} GB")
-    logger.info(f"{'='*80}")
+    logger.info("")
 
 
 if __name__ == "__main__":
