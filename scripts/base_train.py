@@ -122,6 +122,7 @@ def get_args():
 
     # Memory optimization
     parser.add_argument("--low-memory", action="store_true", help="Enable aggressive memory optimization mode")
+    parser.add_argument("--monitor-memory", action="store_true", help="Enable memory monitoring and reporting")
     parser.add_argument(
         "--memory-limit-gb", type=float, default=None, help="Abort training if memory exceeds this limit (GB)"
     )
@@ -614,8 +615,11 @@ def main():
         if args.resume:
             logger.info(f"No checkpoint found in {checkpoint_dir}, starting fresh training\n")
 
-    # Set default memory limit if not specified
-    if args.memory_limit_gb is None:
+    # Enable memory monitoring if explicitly requested or if memory limit is set
+    memory_monitoring_enabled = args.monitor_memory or args.memory_limit_gb is not None
+
+    # Set default memory limit if monitoring is enabled but limit not specified
+    if memory_monitoring_enabled and args.memory_limit_gb is None:
         # Default to 90% of physical memory
         mem = psutil.virtual_memory()
         args.memory_limit_gb = (mem.total / (1024**3)) * 0.9
@@ -623,19 +627,21 @@ def main():
             f"\nMemory limit not specified, defaulting to 90% of physical memory: {args.memory_limit_gb:.2f} GB"
         )
 
-    # Initial memory baseline
-    initial_mem = get_memory_usage()
-    logger.info("\nInitial Memory State:")
-    logger.info(
-        f"  System memory: {initial_mem['system_used_gb']:.2f} GB / {initial_mem['system_total_gb']:.2f} GB ({initial_mem['system_percent']:.1f}%)"
-    )
-    logger.info(f"  Process memory: {initial_mem['process_used_gb']:.2f} GB")
-    logger.info(f"  Memory limit: {args.memory_limit_gb:.2f} GB")
-    logger.info(f"  Memory check interval: every {args.memory_check_interval} steps")
-
-    # Track peak memory usage
-    peak_memory = initial_mem["system_used_gb"]
-    peak_process_memory = initial_mem["process_used_gb"]
+    # Initial memory baseline (only if monitoring enabled)
+    initial_mem = None
+    peak_memory = 0
+    peak_process_memory = 0
+    if memory_monitoring_enabled:
+        initial_mem = get_memory_usage()
+        logger.info("\nInitial Memory State:")
+        logger.info(
+            f"  System memory: {initial_mem['system_used_gb']:.2f} GB / {initial_mem['system_total_gb']:.2f} GB ({initial_mem['system_percent']:.1f}%)"
+        )
+        logger.info(f"  Process memory: {initial_mem['process_used_gb']:.2f} GB")
+        logger.info(f"  Memory limit: {args.memory_limit_gb:.2f} GB")
+        logger.info(f"  Memory check interval: every {args.memory_check_interval} steps")
+        peak_memory = initial_mem["system_used_gb"]
+        peak_process_memory = initial_mem["process_used_gb"]
 
     logger.info("")
     logger.info("Starting Training")
@@ -847,8 +853,8 @@ def main():
             if step % gc_interval == 0:
                 gc.collect()
 
-            # Periodic memory checks
-            if step % args.memory_check_interval == 0:
+            # Periodic memory checks (only if monitoring enabled)
+            if memory_monitoring_enabled and step % args.memory_check_interval == 0:
                 try:
                     mem_stats = check_memory_limit(args.memory_limit_gb, logger, step)
 
@@ -994,20 +1000,21 @@ def main():
             # Force garbage collection after evaluation
             gc.collect()
 
-    # Final memory report
-    final_mem = get_memory_usage()
-
+    # Final memory report (only if monitoring enabled)
     logger.info("")
     logger.info("Training Complete")
     logger.info(f"  Total time: {total_training_time/60:.2f} minutes")
     logger.info(f"  Min validation loss: {min_val_loss:.4f}")
-    logger.info("")
-    logger.info("Memory Summary:")
-    logger.info(f"  Initial memory: {initial_mem['system_used_gb']:.2f} GB")
-    logger.info(f"  Final memory: {final_mem['system_used_gb']:.2f} GB")
-    logger.info(f"  Peak memory: {peak_memory:.2f} GB")
-    logger.info(f"  Peak process memory: {peak_process_memory:.2f} GB")
-    logger.info(f"  Memory limit: {args.memory_limit_gb:.2f} GB")
+
+    if memory_monitoring_enabled:
+        final_mem = get_memory_usage()
+        logger.info("")
+        logger.info("Memory Summary:")
+        logger.info(f"  Initial memory: {initial_mem['system_used_gb']:.2f} GB")
+        logger.info(f"  Final memory: {final_mem['system_used_gb']:.2f} GB")
+        logger.info(f"  Peak memory: {peak_memory:.2f} GB")
+        logger.info(f"  Peak process memory: {peak_process_memory:.2f} GB")
+        logger.info(f"  Memory limit: {args.memory_limit_gb:.2f} GB")
     logger.info("")
 
 
