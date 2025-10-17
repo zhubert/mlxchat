@@ -2,6 +2,7 @@
 
 import mlx.core as mx
 import mlx.nn as nn
+import mlx.optimizers as optim
 
 
 # Simple model
@@ -41,7 +42,7 @@ print(f"Linear weight grad shape: {grads['linear']['weight'].shape}")
 print(f"Linear weight grad norm: {mx.sqrt(mx.sum(mx.square(grads['linear']['weight']))).item()}")
 
 # Update model
-opt = mx.optimizers.Adam(learning_rate=0.01)
+opt = optim.Adam(learning_rate=0.01)
 opt.update(model, grads)
 mx.eval(model.parameters())
 

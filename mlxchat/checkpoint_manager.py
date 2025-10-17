@@ -88,7 +88,8 @@ def load_checkpoint(checkpoint_dir, step, load_optimizer=False):
         optimizer_path = os.path.join(checkpoint_dir, f"optim_{step:06d}.npz")
         if os.path.exists(optimizer_path):
             optim_arrays = mx.load(optimizer_path)
-            # Unflatten optimizer states
+            # Unflatten optimizer states properly
+            # First, group arrays by optimizer name
             optimizer_data = {}
             for flat_key, value in optim_arrays.items():
                 # Split "adam.key.subkey" -> ("adam", "key.subkey")
@@ -96,17 +97,15 @@ def load_checkpoint(checkpoint_dir, step, load_optimizer=False):
                 if opt_name not in optimizer_data:
                     optimizer_data[opt_name] = {}
                 if rest:
+                    # Use the remaining key as-is for unflattening
                     key = rest[0]
-                    # Further unflatten if needed
-                    current = optimizer_data[opt_name]
-                    parts = key.split(".")
-                    for part in parts[:-1]:
-                        if part not in current:
-                            current[part] = {}
-                        current = current[part]
-                    current[parts[-1]] = value
-                else:
-                    optimizer_data[opt_name] = value
+                    if key not in optimizer_data[opt_name]:
+                        optimizer_data[opt_name][key] = value
+
+            # Now unflatten each optimizer's state using unflatten_dict
+            # which properly converts numeric keys to lists
+            for opt_name in optimizer_data:
+                optimizer_data[opt_name] = unflatten_dict(optimizer_data[opt_name])
 
     # Load the metadata
     meta_path = os.path.join(checkpoint_dir, f"meta_{step:06d}.json")
