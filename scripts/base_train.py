@@ -275,6 +275,10 @@ def evaluate(model, val_loader, eval_steps):
     eval_logger = logging.getLogger()
     model.eval()  # Set to eval mode (though MLX doesn't have dropout/batchnorm)
 
+    # CRITICAL: Ensure model parameters are fully evaluated before validation
+    # This detaches them from any training computation graphs
+    mx.eval(model.parameters())
+
     total_loss = 0.0
     num_batches = 0
 
@@ -291,15 +295,21 @@ def evaluate(model, val_loader, eval_steps):
             inputs, targets = next(val_iter)
 
             if i == 0:
-                eval_logger.info("  First batch loaded, computing loss...")
+                eval_logger.info(f"  First batch loaded (shape: {inputs.shape}), computing loss...")
 
             # Forward pass only (no gradients)
             loss = model(inputs, targets=targets)
 
             # Evaluate immediately to prevent graph buildup
             mx.eval(loss)
-            total_loss += loss.item()
+
+            # Convert to scalar
+            loss_value = loss.item()
+            total_loss += loss_value
             num_batches += 1
+
+            if i == 0:
+                eval_logger.info(f"  First batch loss computed: {loss_value:.6f}")
 
             # Log progress at intervals
             if i + 1 in log_intervals:
@@ -308,7 +318,7 @@ def evaluate(model, val_loader, eval_steps):
                 eval_logger.info(f"  Validation progress: {i+1}/{eval_steps} ({pct}%), avg loss: {avg_loss:.6f}")
 
             # Explicit cleanup of inputs/targets
-            del inputs, targets, loss
+            del inputs, targets, loss, loss_value
 
         except StopIteration:
             eval_logger.warning(f"  Validation data exhausted at batch {i}/{eval_steps}")
@@ -988,6 +998,10 @@ def main():
 
         # Validation evaluation (after training step)
         if step > 0 and step % args.eval_every == 0:
+            # CRITICAL: Evaluate model parameters to detach from computation graphs
+            # This prevents massive graph buildup during validation
+            mx.eval(model.parameters())
+
             logger.info(f"Starting validation at step {step} ({eval_steps} batches)...")
             val_loss = evaluate(model, val_loader, eval_steps)
             logger.info(f"Validation complete. Loss: {val_loss:.6f}")
