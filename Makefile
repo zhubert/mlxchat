@@ -1,4 +1,4 @@
-.PHONY: help install install-rust build-tokenizer train-tokenizer test train train-quick train-test chat-cli chat-web download-data format lint clean
+.PHONY: help install install-rust build-tokenizer train-tokenizer test train train-quick train-test train-low-memory train-ultra-low train-profile chat-cli chat-web chat-quantized download-data format lint clean monitor-memory quantize quantize-4bit quantize-8bit memory-info disk-usage
 
 # Default target
 help:
@@ -10,15 +10,36 @@ help:
 	@echo "  make build-tokenizer - Build rustbpe tokenizer (2-3x faster than tiktoken)"
 	@echo "  make train-tokenizer - Train a custom tokenizer (recommended before training)"
 	@echo "  make test          - Run all tests"
+	@echo ""
+	@echo "Training:"
 	@echo "  make train         - Train d12 model (full run, resumes automatically)"
 	@echo "  make train-quick   - Quick training test (100 steps, resumes automatically)"
 	@echo "  make train-test    - Minimal training test (2 steps)"
+	@echo "  make train-low-memory - Train with aggressive memory optimization (10-15 GB)"
+	@echo "  make train-ultra-low  - Train with ultra-low memory settings (6-10 GB)"
+	@echo "  make train-profile    - Train with detailed profiling and memory tracking"
+	@echo ""
+	@echo "Memory Optimization:"
+	@echo "  make memory-info      - Show memory usage and optimization recommendations"
+	@echo "  make monitor-memory   - Monitor system memory usage in real-time"
+	@echo "  make quantize         - Quantize trained model to 4-bit (8x smaller)"
+	@echo "  make quantize-8bit    - Quantize trained model to 8-bit (4x smaller)"
+	@echo "  make chat-quantized   - Chat with quantized model"
+	@echo ""
+	@echo "Inference:"
 	@echo "  make chat-cli      - Run CLI chat interface"
 	@echo "  make chat-web      - Run web UI chat interface"
+	@echo ""
+	@echo "Data Management:"
 	@echo "  make download-data - Download first 50 shards (~8GB)"
+	@echo ""
+	@echo "Monitoring:"
 	@echo "  make logs          - List recent training logs"
 	@echo "  make tail-log      - Follow latest training log in real-time"
 	@echo "  make view-log      - View latest training log"
+	@echo "  make disk-usage    - Show disk usage for cache/checkpoints"
+	@echo ""
+	@echo "Code Quality:"
 	@echo "  make format        - Format code with black"
 	@echo "  make lint          - Lint code with ruff"
 	@echo "  make clean         - Clean cache and build artifacts"
@@ -30,6 +51,8 @@ help:
 	@echo "  - Streaming mode enabled by default (20 cached shards)"
 	@echo "  - Automatic checkpoint resumption (--resume)"
 	@echo "  - Timestamped logs in ~/.cache/mlxchat/logs/"
+	@echo "  - Low-memory mode for training on limited RAM"
+	@echo "  - 4-bit/8-bit quantization for inference"
 
 # Installation
 install:
@@ -114,6 +137,42 @@ train-test:
 		--save-every 1 \
 		--resume
 
+# Low-memory training targets
+train-low-memory:
+	@echo "Starting low-memory training mode (10-15 GB expected)"
+	@echo "Tip: Run 'make monitor-memory' in another terminal to track usage"
+	@echo ""
+	uv run python -u -m scripts.base_train \
+		--depth=12 \
+		--streaming \
+		--low-memory \
+		--resume
+
+train-ultra-low:
+	@echo "Starting ultra-low memory training mode (6-10 GB expected)"
+	@echo "Tip: Run 'make monitor-memory' in another terminal to track usage"
+	@echo ""
+	uv run python -u -m scripts.base_train \
+		--depth=12 \
+		--device-batch-size 1 \
+		--total-batch-size 65536 \
+		--streaming \
+		--max-cached-shards 3 \
+		--eval-every 1000 \
+		--eval-tokens 262144 \
+		--resume
+
+train-profile:
+	@echo "Starting training with detailed profiling and memory tracking"
+	@echo "This will show memory usage and timing breakdown for each step"
+	@echo ""
+	uv run python -u -m scripts.base_train \
+		--depth=12 \
+		--streaming \
+		--low-memory \
+		--profile \
+		--resume
+
 # Training different model sizes
 train-d12:
 	$(MAKE) train DEPTH=12 BATCH_SIZE=8
@@ -142,6 +201,52 @@ chat-web:
 	uv run python -m scripts.chat_web \
 		--checkpoint $(CHECKPOINT) \
 		--port 8000
+
+# Memory optimization
+monitor-memory:
+	@echo "Monitoring system memory usage..."
+	@echo "Press Ctrl+C to stop"
+	@echo ""
+	uv run python -m scripts.monitor_memory
+
+# Quantization targets
+CHECKPOINT_FILE ?= ~/.cache/mlxchat/base_checkpoints/d12/model_latest.npz
+BITS ?= 4
+
+quantize:
+	@echo "Quantizing model to $(BITS)-bit..."
+	@echo "Checkpoint: $(CHECKPOINT_FILE)"
+	@echo ""
+	uv run python -m scripts.quantize_checkpoint \
+		--checkpoint $(CHECKPOINT_FILE) \
+		--bits $(BITS)
+	@echo ""
+	@echo "✓ Quantization complete!"
+	@echo "  Use 'make chat-quantized' to test the quantized model"
+
+quantize-8bit:
+	$(MAKE) quantize BITS=8
+
+quantize-4bit:
+	$(MAKE) quantize BITS=4
+
+# Chat with quantized model
+CHECKPOINT_BASE ?= ~/.cache/mlxchat/base_checkpoints/d12
+QUANTIZED_CHECKPOINT ?= $(CHECKPOINT_BASE)/model_latest_q4.npz
+
+chat-quantized:
+	@if [ ! -f "$(QUANTIZED_CHECKPOINT)" ]; then \
+		echo "Error: Quantized checkpoint not found at $(QUANTIZED_CHECKPOINT)"; \
+		echo "Run 'make quantize' first to create a quantized model"; \
+		exit 1; \
+	fi
+	@echo "Starting chat with quantized model..."
+	@echo "Checkpoint: $(QUANTIZED_CHECKPOINT)"
+	@echo ""
+	uv run python -m scripts.chat_cli \
+		--checkpoint $(QUANTIZED_CHECKPOINT) \
+		--temperature $(TEMP) \
+		--top-k $(TOP_K)
 
 # Data management
 download-data:
@@ -194,14 +299,50 @@ watch-checkpoints:
 	watch -n 5 'ls -lh ~/.cache/mlxchat/base_checkpoints/d12/ | tail -20'
 
 disk-usage:
+	@echo "Disk Usage:"
+	@echo "==========="
+	@echo ""
 	@echo "Cached shards:"
-	@du -sh ~/.cache/mlxchat/base_data 2>/dev/null || echo "No shards cached"
+	@du -sh ~/.cache/mlxchat/base_data 2>/dev/null || echo "  No shards cached"
 	@echo ""
 	@echo "Checkpoints:"
-	@du -sh ~/.cache/mlxchat/base_checkpoints 2>/dev/null || echo "No checkpoints saved"
+	@du -sh ~/.cache/mlxchat/base_checkpoints 2>/dev/null || echo "  No checkpoints saved"
 	@echo ""
 	@echo "Tokenizer:"
-	@du -sh ~/.cache/mlxchat/tokenizer 2>/dev/null || echo "No tokenizer trained"
+	@du -sh ~/.cache/mlxchat/tokenizer 2>/dev/null || echo "  No tokenizer trained"
+	@echo ""
+	@echo "Logs:"
+	@du -sh ~/.cache/mlxchat/logs 2>/dev/null || echo "  No logs"
+
+memory-info:
+	@echo "================================================================================"
+	@echo "MEMORY OPTIMIZATION GUIDE"
+	@echo "================================================================================"
+	@echo ""
+	@echo "Current System Memory:"
+	@uv run python -c "import psutil; mem = psutil.virtual_memory(); print(f'  Total: {mem.total/(1024**3):.1f} GB'); print(f'  Available: {mem.available/(1024**3):.1f} GB'); print(f'  Used: {mem.used/(1024**3):.1f} GB ({mem.percent:.1f}%)')" 2>/dev/null || echo "  (Run 'make install' to see memory stats)"
+	@echo ""
+	@echo "Recommended Commands by Available Memory:"
+	@echo "==========================================="
+	@echo ""
+	@echo "If you have 16-32 GB RAM:"
+	@echo "  make train-low-memory     # Uses 10-15 GB, trains d12 (186M params)"
+	@echo ""
+	@echo "If you have 8-16 GB RAM:"
+	@echo "  make train-ultra-low      # Uses 6-10 GB, trains d12 (186M params)"
+	@echo ""
+	@echo "If you have 32+ GB RAM:"
+	@echo "  make train                # Standard training (15-25 GB)"
+	@echo ""
+	@echo "To monitor memory during training:"
+	@echo "  make monitor-memory       # Run this in a separate terminal"
+	@echo ""
+	@echo "To quantize trained models for inference:"
+	@echo "  make quantize             # 4-bit quantization (8x smaller)"
+	@echo "  make quantize-8bit        # 8-bit quantization (4x smaller)"
+	@echo ""
+	@echo "For more details, see: MEMORY_OPTIMIZATION.md"
+	@echo "================================================================================"
 
 # Logging
 logs:

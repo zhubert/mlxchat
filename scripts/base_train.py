@@ -111,6 +111,12 @@ def get_args():
     parser.add_argument("--save-every", type=int, default=10, help="Save checkpoint every N steps")
     parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint if available")
 
+    # Profiling
+    parser.add_argument("--profile", action="store_true", help="Enable detailed profiling of training step")
+
+    # Memory optimization
+    parser.add_argument("--low-memory", action="store_true", help="Enable aggressive memory optimization mode")
+
     return parser.parse_args()
 
 
@@ -255,6 +261,8 @@ def evaluate(model, val_loader, eval_steps):
     Returns:
         Average validation loss
     """
+    import gc
+
     model.eval()  # Set to eval mode (though MLX doesn't have dropout/batchnorm)
 
     total_loss = 0.0
@@ -281,6 +289,9 @@ def evaluate(model, val_loader, eval_steps):
             break
 
     model.train()  # Set back to train mode
+
+    # Force garbage collection after eval
+    gc.collect()
 
     if num_batches == 0:
         return float("inf")
@@ -317,6 +328,40 @@ def clip_gradients(grads, max_norm):
 
 def main():
     args = get_args()
+
+    # Apply low-memory mode settings
+    if args.low_memory:
+        print("=" * 80)
+        print("LOW MEMORY MODE ENABLED")
+        print("Applying aggressive memory optimization settings...")
+        print("=" * 80)
+
+        # Force minimal batch sizes
+        if args.device_batch_size > 2:
+            print(f"  Reducing device_batch_size: {args.device_batch_size} → 2")
+            args.device_batch_size = 2
+
+        if args.total_batch_size > 262144:
+            print(f"  Reducing total_batch_size: {args.total_batch_size} → 262144")
+            args.total_batch_size = 262144
+
+        # Reduce cached shards
+        if args.streaming and args.max_cached_shards > 5:
+            print(f"  Reducing max_cached_shards: {args.max_cached_shards} → 5")
+            args.max_cached_shards = 5
+
+        # Less frequent evaluation
+        if args.eval_every < 500:
+            print(f"  Increasing eval_every: {args.eval_every} → 500")
+            args.eval_every = 500
+
+        # Reduce evaluation tokens
+        if args.eval_tokens > 524288:
+            print(f"  Reducing eval_tokens: {args.eval_tokens} → 524288")
+            args.eval_tokens = 524288
+
+        print("=" * 80)
+        print()
 
     # Determine model tag early for logging setup
     if not args.model_tag:
@@ -507,21 +552,51 @@ def main():
         if not last_step:
             t0 = time.time()
 
+            # Profiling timers
+            if args.profile:
+                profile_times = {}
+                import psutil
+
+                process = psutil.Process()
+
             # Gradient accumulation
             from mlx.utils import tree_map
+
+            # Create loss_and_grad function once (not per micro-step)
+            loss_and_grad_fn = nn.value_and_grad(model, loss_fn)
 
             accum_grads = None
             total_loss = 0.0
 
             for micro_step in range(grad_accum_steps):
+                if args.profile:
+                    t_data_start = time.time()
+
                 inputs, targets = next(train_iter)
 
+                if args.profile:
+                    t_data_end = time.time()
+                    profile_times.setdefault("data_loading", []).append((t_data_end - t_data_start) * 1000)
+
+                    t_fwd_bwd_start = time.time()
+
                 # Forward and backward
-                loss_and_grad_fn = nn.value_and_grad(model, loss_fn)
                 loss, grads = loss_and_grad_fn(model, inputs, targets)
 
-                # Accumulate loss
+                if args.profile:
+                    t_fwd_bwd_end = time.time()
+                    profile_times.setdefault("forward_backward", []).append((t_fwd_bwd_end - t_fwd_bwd_start) * 1000)
+
+                    t_loss_eval_start = time.time()
+
+                # Accumulate loss (forces evaluation of loss)
                 total_loss += loss.item()
+
+                if args.profile:
+                    t_loss_eval_end = time.time()
+                    profile_times.setdefault("loss_eval", []).append((t_loss_eval_end - t_loss_eval_start) * 1000)
+
+                    t_grad_accum_start = time.time()
 
                 # Accumulate gradients
                 if accum_grads is not None:
@@ -529,21 +604,51 @@ def main():
                 else:
                     accum_grads = grads
 
-                # Evaluate incrementally to avoid memory buildup
-                mx.eval(loss, accum_grads)
+                if args.profile:
+                    t_grad_accum_end = time.time()
+                    profile_times.setdefault("grad_accumulation", []).append(
+                        (t_grad_accum_end - t_grad_accum_start) * 1000
+                    )
 
-                # Cleanup micro-step intermediates
-                del loss, grads
+                # Cleanup micro-step intermediates including input tensors
+                del loss, grads, inputs, targets
+
+            # Evaluate accumulated gradients once after all micro-steps
+            if args.profile:
+                t_grad_eval_start = time.time()
+
+            mx.eval(accum_grads)
+
+            if args.profile:
+                t_grad_eval_end = time.time()
+                profile_times["grad_eval"] = (t_grad_eval_end - t_grad_eval_start) * 1000
 
             # Average loss and gradients over accumulation steps
+            if args.profile:
+                t_grad_avg_start = time.time()
+
             train_loss = total_loss / grad_accum_steps
             accum_grads = tree_map(lambda g: g / grad_accum_steps, accum_grads)
 
+            if args.profile:
+                t_grad_avg_end = time.time()
+                profile_times["grad_averaging"] = (t_grad_avg_end - t_grad_avg_start) * 1000
+
             # Gradient clipping
             if args.grad_clip > 0.0:
+                if args.profile:
+                    t_clip_start = time.time()
+
                 accum_grads, grad_norm = clip_gradients(accum_grads, args.grad_clip)
 
+                if args.profile:
+                    t_clip_end = time.time()
+                    profile_times["grad_clipping"] = (t_clip_end - t_clip_start) * 1000
+
             # Learning rate scheduling
+            if args.profile:
+                t_lr_start = time.time()
+
             lr_mult = get_lr_multiplier(step, num_iterations)
             muon_momentum = get_muon_momentum(step)
 
@@ -553,6 +658,10 @@ def main():
             # Update Muon learning rate and momentum
             muon_opt.learning_rate = args.matrix_lr * lr_mult
             muon_opt.momentum = muon_momentum
+
+            if args.profile:
+                t_lr_end = time.time()
+                profile_times["lr_scheduling"] = (t_lr_end - t_lr_start) * 1000
 
             # Split gradients by parameter group
             # accum_grads is a nested dict matching model structure
@@ -575,6 +684,9 @@ def main():
             # Adam: wte (embeddings) and lm_head
             # Muon: everything else (transformer blocks)
 
+            if args.profile:
+                t_grad_split_start = time.time()
+
             # Filter gradients for Adam (embeddings + lm_head)
             adam_grads = {}
             if "wte" in accum_grads:
@@ -587,9 +699,16 @@ def main():
             if "h" in accum_grads:
                 muon_grads["h"] = accum_grads["h"]
 
+            if args.profile:
+                t_grad_split_end = time.time()
+                profile_times["grad_splitting"] = (t_grad_split_end - t_grad_split_start) * 1000
+
             # Update parameters with each optimizer
             # Note: optimizer.update expects (params_dict, grads_dict)
             if adam_grads:
+                if args.profile:
+                    t_adam_start = time.time()
+
                 adam_params = {}
                 if "wte" in adam_grads:
                     adam_params["wte"] = model.wte
@@ -599,11 +718,22 @@ def main():
                 # Evaluate immediately for better incremental computation
                 mx.eval(adam_params, adam_opt.state)
 
+                if args.profile:
+                    t_adam_end = time.time()
+                    profile_times["adam_update"] = (t_adam_end - t_adam_start) * 1000
+
             if muon_grads:
+                if args.profile:
+                    t_muon_start = time.time()
+
                 muon_params = {"h": model.h}
                 muon_opt.update(muon_params, muon_grads)
                 # Evaluate immediately for better incremental computation
                 mx.eval(muon_params, muon_opt.state)
+
+                if args.profile:
+                    t_muon_end = time.time()
+                    profile_times["muon_update"] = (t_muon_end - t_muon_start) * 1000
 
             t1 = time.time()
             dt = t1 - t0
@@ -623,6 +753,14 @@ def main():
 
             # Explicit cleanup of training step intermediates
             del accum_grads, adam_grads, muon_grads
+
+            # Force garbage collection to prevent memory buildup
+            # More frequent in low-memory mode
+            gc_interval = 5 if args.low_memory else 10
+            if step % gc_interval == 0:
+                import gc
+
+                gc.collect()
 
             # Calculate time estimates
             steps_remaining = num_iterations - step
@@ -652,6 +790,54 @@ def main():
                 f"tok/sec: {tok_per_sec:,} | elapsed: {elapsed_min:.2f}m | eta: {eta_str}"
             )
             logger.info(f"{'='*80}")
+
+            # Profiling output
+            if args.profile:
+                logger.info("\n--- PROFILING BREAKDOWN ---")
+
+                # Get memory usage
+                mem_info = process.memory_info()
+                mem_gb = mem_info.rss / (1024**3)
+                logger.info(f"Memory usage: {mem_gb:.2f} GB")
+
+                # Compute and display timing breakdown
+                total_accounted = 0.0
+
+                # Display per-microstep timings (averaged)
+                logger.info("\nPer-microstep timings (averaged over {} steps):".format(grad_accum_steps))
+                for key in ["data_loading", "forward_backward", "loss_eval", "grad_accumulation"]:
+                    if key in profile_times:
+                        times = profile_times[key]
+                        avg_time = sum(times) / len(times)
+                        total_time = sum(times)
+                        pct = (total_time / (dt * 1000)) * 100
+                        logger.info(f"  {key:20s}: {avg_time:8.2f}ms avg | {total_time:8.2f}ms total ({pct:5.1f}%)")
+                        total_accounted += total_time
+
+                # Display single-time operations
+                logger.info("\nSingle operations:")
+                for key in [
+                    "grad_eval",
+                    "grad_averaging",
+                    "grad_clipping",
+                    "lr_scheduling",
+                    "grad_splitting",
+                    "adam_update",
+                    "muon_update",
+                ]:
+                    if key in profile_times:
+                        op_time = profile_times[key]
+                        pct = (op_time / (dt * 1000)) * 100
+                        logger.info(f"  {key:20s}: {op_time:8.2f}ms ({pct:5.1f}%)")
+                        total_accounted += op_time
+
+                # Compute unaccounted time
+                unaccounted = (dt * 1000) - total_accounted
+                pct_unaccounted = (unaccounted / (dt * 1000)) * 100
+                logger.info(f"\n  {'Total accounted':20s}: {total_accounted:8.2f}ms ({100 - pct_unaccounted:5.1f}%)")
+                logger.info(f"  {'Unaccounted':20s}: {unaccounted:8.2f}ms ({pct_unaccounted:5.1f}%)")
+                logger.info(f"  {'Total step time':20s}: {dt*1000:8.2f}ms (100.0%)")
+                logger.info("--- END PROFILING ---\n")
 
         # Checkpoint saving (after training step)
         if step > 0 and (step % args.save_every == 0 or last_step):

@@ -3,7 +3,7 @@ name = "mlxchat"
 version = "0.1.0"
 description = "nanochat ported to MLX for Apple Silicon"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.13"
 dependencies = [
     "mlx>=0.20.0",
     "numpy>=1.26.0",
