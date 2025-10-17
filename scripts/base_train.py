@@ -14,10 +14,12 @@ import time
 import argparse
 import logging
 from datetime import datetime
+import gc
 
 import mlx.core as mx
 import mlx.nn as nn
 import mlx.optimizers as optim
+import psutil
 
 from mlxchat.gpt import GPT, GPTConfig
 from mlxchat.muon import Muon
@@ -116,6 +118,10 @@ def get_args():
 
     # Memory optimization
     parser.add_argument("--low-memory", action="store_true", help="Enable aggressive memory optimization mode")
+    parser.add_argument(
+        "--memory-limit-gb", type=float, default=None, help="Abort training if memory exceeds this limit (GB)"
+    )
+    parser.add_argument("--memory-check-interval", type=int, default=10, help="Check memory every N steps")
 
     return parser.parse_args()
 
@@ -261,8 +267,6 @@ def evaluate(model, val_loader, eval_steps):
     Returns:
         Average validation loss
     """
-    import gc
-
     model.eval()  # Set to eval mode (though MLX doesn't have dropout/batchnorm)
 
     total_loss = 0.0
@@ -324,6 +328,60 @@ def clip_gradients(grads, max_norm):
     clipped_grads = tree_map(lambda g: g * scale, grads)
 
     return clipped_grads, global_norm
+
+
+def get_memory_usage():
+    """
+    Get current memory usage statistics.
+
+    Returns:
+        dict: Memory statistics including used, available, total, and percent
+    """
+    mem = psutil.virtual_memory()
+    process = psutil.Process()
+    process_mem = process.memory_info().rss
+
+    return {
+        "system_used_gb": mem.used / (1024**3),
+        "system_available_gb": mem.available / (1024**3),
+        "system_total_gb": mem.total / (1024**3),
+        "system_percent": mem.percent,
+        "process_used_gb": process_mem / (1024**3),
+    }
+
+
+def check_memory_limit(memory_limit_gb, logger, step):
+    """
+    Check if memory usage exceeds limit and abort if necessary.
+
+    Args:
+        memory_limit_gb: Memory limit in GB (None to disable)
+        logger: Logger instance
+        step: Current training step
+
+    Returns:
+        dict: Current memory statistics
+
+    Raises:
+        MemoryError: If memory limit is exceeded
+    """
+    mem_stats = get_memory_usage()
+
+    if memory_limit_gb is not None and mem_stats["system_used_gb"] > memory_limit_gb:
+        logger.error("=" * 80)
+        logger.error("MEMORY LIMIT EXCEEDED - ABORTING TRAINING")
+        logger.error("=" * 80)
+        logger.error(f"Step: {step}")
+        logger.error(f"Memory limit: {memory_limit_gb:.2f} GB")
+        logger.error(f"System memory used: {mem_stats['system_used_gb']:.2f} GB ({mem_stats['system_percent']:.1f}%)")
+        logger.error(f"Process memory used: {mem_stats['process_used_gb']:.2f} GB")
+        logger.error(f"System memory available: {mem_stats['system_available_gb']:.2f} GB")
+        logger.error("=" * 80)
+        raise MemoryError(
+            f"Memory usage ({mem_stats['system_used_gb']:.2f} GB) exceeded limit ({memory_limit_gb:.2f} GB)"
+        )
+
+    return mem_stats
 
 
 def main():
@@ -538,6 +596,29 @@ def main():
         if args.resume:
             logger.info(f"No checkpoint found in {checkpoint_dir}, starting fresh training\n")
 
+    # Set default memory limit if not specified
+    if args.memory_limit_gb is None:
+        # Default to 90% of physical memory
+        mem = psutil.virtual_memory()
+        args.memory_limit_gb = (mem.total / (1024**3)) * 0.9
+        logger.info(
+            f"\nMemory limit not specified, defaulting to 90% of physical memory: {args.memory_limit_gb:.2f} GB"
+        )
+
+    # Initial memory baseline
+    initial_mem = get_memory_usage()
+    logger.info("\nInitial Memory State:")
+    logger.info(
+        f"  System memory: {initial_mem['system_used_gb']:.2f} GB / {initial_mem['system_total_gb']:.2f} GB ({initial_mem['system_percent']:.1f}%)"
+    )
+    logger.info(f"  Process memory: {initial_mem['process_used_gb']:.2f} GB")
+    logger.info(f"  Memory limit: {args.memory_limit_gb:.2f} GB")
+    logger.info(f"  Memory check interval: every {args.memory_check_interval} steps")
+
+    # Track peak memory usage
+    peak_memory = initial_mem["system_used_gb"]
+    peak_process_memory = initial_mem["process_used_gb"]
+
     logger.info(f"\n{'='*80}")
     logger.info("Starting Training")
     logger.info(f"{'='*80}\n")
@@ -555,8 +636,6 @@ def main():
             # Profiling timers
             if args.profile:
                 profile_times = {}
-                import psutil
-
                 process = psutil.Process()
 
             # Gradient accumulation
@@ -604,6 +683,9 @@ def main():
                 else:
                     accum_grads = grads
 
+                # CRITICAL: Evaluate gradients immediately after accumulation to prevent graph buildup
+                mx.eval(accum_grads)
+
                 if args.profile:
                     t_grad_accum_end = time.time()
                     profile_times.setdefault("grad_accumulation", []).append(
@@ -613,15 +695,8 @@ def main():
                 # Cleanup micro-step intermediates including input tensors
                 del loss, grads, inputs, targets
 
-            # Evaluate accumulated gradients once after all micro-steps
-            if args.profile:
-                t_grad_eval_start = time.time()
-
-            mx.eval(accum_grads)
-
-            if args.profile:
-                t_grad_eval_end = time.time()
-                profile_times["grad_eval"] = (t_grad_eval_end - t_grad_eval_start) * 1000
+            # Note: gradients are already evaluated after each micro-step
+            # This prevents computation graph accumulation
 
             # Average loss and gradients over accumulation steps
             if args.profile:
@@ -758,9 +833,28 @@ def main():
             # More frequent in low-memory mode
             gc_interval = 5 if args.low_memory else 10
             if step % gc_interval == 0:
-                import gc
-
                 gc.collect()
+
+            # Periodic memory checks
+            if step % args.memory_check_interval == 0:
+                try:
+                    mem_stats = check_memory_limit(args.memory_limit_gb, logger, step)
+
+                    # Update peak memory tracking
+                    peak_memory = max(peak_memory, mem_stats["system_used_gb"])
+                    peak_process_memory = max(peak_process_memory, mem_stats["process_used_gb"])
+
+                    # Log memory status
+                    logger.info(
+                        f"Memory: {mem_stats['system_used_gb']:.2f} GB used ({mem_stats['system_percent']:.1f}%), "
+                        f"Process: {mem_stats['process_used_gb']:.2f} GB, "
+                        f"Peak: {peak_memory:.2f} GB"
+                    )
+                except MemoryError:
+                    logger.error("\nAborting training due to memory limit exceeded")
+                    logger.error(f"Peak system memory: {peak_memory:.2f} GB")
+                    logger.error(f"Peak process memory: {peak_process_memory:.2f} GB")
+                    raise
 
             # Calculate time estimates
             steps_remaining = num_iterations - step
@@ -817,7 +911,6 @@ def main():
                 # Display single-time operations
                 logger.info("\nSingle operations:")
                 for key in [
-                    "grad_eval",
                     "grad_averaging",
                     "grad_clipping",
                     "lr_scheduling",
@@ -886,14 +979,21 @@ def main():
                 logger.info(f"New best validation loss: {val_loss:.6f}")
 
             # Force garbage collection after evaluation
-            import gc
-
             gc.collect()
+
+    # Final memory report
+    final_mem = get_memory_usage()
 
     logger.info(f"\n{'='*80}")
     logger.info("Training Complete")
     logger.info(f"  Total time: {total_training_time/60:.2f} minutes")
     logger.info(f"  Min validation loss: {min_val_loss:.4f}")
+    logger.info("\nMemory Summary:")
+    logger.info(f"  Initial memory: {initial_mem['system_used_gb']:.2f} GB")
+    logger.info(f"  Final memory: {final_mem['system_used_gb']:.2f} GB")
+    logger.info(f"  Peak memory: {peak_memory:.2f} GB")
+    logger.info(f"  Peak process memory: {peak_process_memory:.2f} GB")
+    logger.info(f"  Memory limit: {args.memory_limit_gb:.2f} GB")
     logger.info(f"{'='*80}")
 
 
