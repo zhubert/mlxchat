@@ -202,10 +202,10 @@ class GPT(nn.Module):
             elif isinstance(module, nn.Embedding):
                 module.weight = mx.random.normal(module.weight.shape, scale=1.0)
 
-        # Zero out classifier weights
+        # Zero out classifier weights (residual initialization from nanochat)
         self.lm_head.weight = mx.zeros_like(self.lm_head.weight)
 
-        # Zero out c_proj weights in all blocks
+        # Zero out c_proj weights in all blocks (residual initialization)
         for block in self.h:
             block.mlp.c_proj.weight = mx.zeros_like(block.mlp.c_proj.weight)
             block.attn.c_proj.weight = mx.zeros_like(block.attn.c_proj.weight)

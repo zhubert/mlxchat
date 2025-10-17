@@ -511,9 +511,6 @@ def main():
     # Setup optimizers
     logger.info("\nSetting up optimizers...")
     adam_opt, muon_opt, param_groups = setup_optimizers(model, config, args, logger)
-    # param_groups is a dict with "adam" and "muon" keys
-    adam_params = param_groups["adam"]
-    muon_params = param_groups["muon"]
 
     # Setup dataloaders
     logger.info("\nSetting up dataloaders...")
@@ -779,19 +776,14 @@ def main():
                 profile_times["grad_splitting"] = (t_grad_split_end - t_grad_split_start) * 1000
 
             # Update parameters with each optimizer
-            # Note: optimizer.update expects (params_dict, grads_dict)
+            # Note: Pass model with filtered gradients - only those params get updated
             if adam_grads:
                 if args.profile:
                     t_adam_start = time.time()
 
-                adam_params = {}
-                if "wte" in adam_grads:
-                    adam_params["wte"] = model.wte
-                if "lm_head" in adam_grads:
-                    adam_params["lm_head"] = model.lm_head
-                adam_opt.update(adam_params, adam_grads)
+                adam_opt.update(model, adam_grads)
                 # Evaluate immediately for better incremental computation
-                mx.eval(adam_params, adam_opt.state)
+                mx.eval(model.parameters(), adam_opt.state)
 
                 if args.profile:
                     t_adam_end = time.time()
@@ -801,10 +793,9 @@ def main():
                 if args.profile:
                     t_muon_start = time.time()
 
-                muon_params = {"h": model.h}
-                muon_opt.update(muon_params, muon_grads)
+                muon_opt.update(model, muon_grads)
                 # Evaluate immediately for better incremental computation
-                mx.eval(muon_params, muon_opt.state)
+                mx.eval(model.parameters(), muon_opt.state)
 
                 if args.profile:
                     t_muon_end = time.time()
