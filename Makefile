@@ -102,10 +102,12 @@ test-dataloader:
 
 # Training targets
 DEPTH ?= 12
-BATCH_SIZE ?= 8
+BATCH_SIZE ?= 4
+TOTAL_BATCH_SIZE ?= 16384
 STEPS ?= -1
 CACHED_SHARDS ?= 20
-SAVE_EVERY ?= 250
+EVAL_EVERY ?= 25
+SAVE_EVERY ?= 50
 
 train:
 	uv run python -u -m scripts.base_train \
@@ -113,7 +115,9 @@ train:
 		--streaming \
 		--max-cached-shards $(CACHED_SHARDS) \
 		--device-batch-size $(BATCH_SIZE) \
+		--total-batch-size $(TOTAL_BATCH_SIZE) \
 		--num-iterations $(STEPS) \
+		--eval-every $(EVAL_EVERY) \
 		--save-every $(SAVE_EVERY) \
 		--resume
 

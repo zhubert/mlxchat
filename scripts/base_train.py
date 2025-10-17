@@ -88,8 +88,8 @@ def get_args():
     parser.add_argument("--target-param-data-ratio", type=float, default=20.0, help="Chinchilla data:param ratio")
 
     # Optimization
-    parser.add_argument("--device-batch-size", type=int, default=8, help="Batch size per device")
-    parser.add_argument("--total-batch-size", type=int, default=524288, help="Total batch size in tokens")
+    parser.add_argument("--device-batch-size", type=int, default=4, help="Batch size per device")
+    parser.add_argument("--total-batch-size", type=int, default=16384, help="Total batch size in tokens")
     parser.add_argument("--embedding-lr", type=float, default=0.2, help="Adam LR for embeddings")
     parser.add_argument("--unembedding-lr", type=float, default=0.004, help="Adam LR for LM head")
     parser.add_argument("--matrix-lr", type=float, default=0.02, help="Muon LR for matrices")
@@ -103,14 +103,14 @@ def get_args():
     parser.add_argument("--tokenizer-dir", type=str, default=None, help="Tokenizer directory")
 
     # Evaluation
-    parser.add_argument("--eval-every", type=int, default=250, help="Evaluate every N steps")
+    parser.add_argument("--eval-every", type=int, default=25, help="Evaluate every N steps")
     parser.add_argument("--eval-tokens", type=int, default=20 * 524288, help="Tokens for validation")
 
     # Output
     parser.add_argument("--output-dir", type=str, default=None, help="Output directory for checkpoints")
     parser.add_argument("--log-dir", type=str, default=None, help="Directory for log files")
     parser.add_argument("--model-tag", type=str, default="", help="Model tag for checkpoint directory")
-    parser.add_argument("--save-every", type=int, default=10, help="Save checkpoint every N steps")
+    parser.add_argument("--save-every", type=int, default=50, help="Save checkpoint every N steps")
     parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint if available")
 
     # Profiling
