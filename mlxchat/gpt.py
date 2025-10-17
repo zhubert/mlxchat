@@ -190,6 +190,9 @@ class GPT(nn.Module):
         self.cos = cos
         self.sin = sin
 
+        # Freeze rotary embeddings (they're not trainable parameters)
+        self.freeze(keys=["cos", "sin"])
+
     def init_weights(self):
         """Initialize model weights"""
         # Initialize all linear layers and embeddings
@@ -215,6 +218,9 @@ class GPT(nn.Module):
         cos, sin = self._precompute_rotary_embeddings(self.rotary_seq_len, head_dim)
         self.cos = cos
         self.sin = sin
+
+        # Re-freeze rotary embeddings after recomputation
+        self.freeze(keys=["cos", "sin"])
 
     def _precompute_rotary_embeddings(self, seq_len, head_dim, base=10000):
         """Precompute rotary position embeddings"""
