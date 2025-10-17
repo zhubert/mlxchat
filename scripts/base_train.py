@@ -273,6 +273,12 @@ def evaluate(model, val_loader, eval_steps):
         Average validation loss
     """
     eval_logger = logging.getLogger()
+
+    # Temporarily enable DEBUG logging for dataloader during validation
+    dataloader_logger = logging.getLogger("mlxchat.dataloader")
+    original_level = dataloader_logger.level
+    dataloader_logger.setLevel(logging.DEBUG)
+
     model.eval()  # Set to eval mode (though MLX doesn't have dropout/batchnorm)
 
     # CRITICAL: Ensure model parameters are fully evaluated before validation
@@ -289,13 +295,13 @@ def evaluate(model, val_loader, eval_steps):
 
     for i in range(eval_steps):
         try:
-            if i == 0:
-                eval_logger.info("  Loading first validation batch...")
+            if i < 3:  # Log first 3 batches for debugging
+                eval_logger.info(f"  Loading validation batch {i+1}...")
 
             inputs, targets = next(val_iter)
 
-            if i == 0:
-                eval_logger.info(f"  First batch loaded (shape: {inputs.shape}), computing loss...")
+            if i < 3:
+                eval_logger.info(f"  Batch {i+1} loaded (shape: {inputs.shape}), computing loss...")
 
             # Forward pass only (no gradients)
             loss = model(inputs, targets=targets)
@@ -308,8 +314,8 @@ def evaluate(model, val_loader, eval_steps):
             total_loss += loss_value
             num_batches += 1
 
-            if i == 0:
-                eval_logger.info(f"  First batch loss computed: {loss_value:.6f}")
+            if i < 3:
+                eval_logger.info(f"  Batch {i+1} loss computed: {loss_value:.6f}")
 
             # Log progress at intervals
             if i + 1 in log_intervals:
@@ -325,6 +331,9 @@ def evaluate(model, val_loader, eval_steps):
             break
 
     model.train()  # Set back to train mode
+
+    # Restore original logging level
+    dataloader_logger.setLevel(original_level)
 
     # Force garbage collection after eval
     gc.collect()

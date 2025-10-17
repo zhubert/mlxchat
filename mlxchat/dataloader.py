@@ -200,11 +200,16 @@ class DataLoader:
             - targets: MLX array of shape (B, T) with dtype int32
         """
         batches = self._document_batches()
+        batch_count = 0
 
         while True:
             # Accumulate enough tokens for one batch
             while len(self.token_buffer) < self.needed_tokens:
+                logger.debug(
+                    f"[{self.split}] Token buffer has {len(self.token_buffer)} tokens, need {self.needed_tokens}, fetching documents..."
+                )
                 doc_batch = next(batches)
+                logger.debug(f"[{self.split}] Got {len(doc_batch)} documents, tokenizing...")
 
                 # Tokenize the batch with BOS token prepended
                 token_lists = self.tokenizer.encode(
@@ -212,10 +217,12 @@ class DataLoader:
                     prepend=self.bos_token_id,
                     return_array=False,
                 )
+                logger.debug(f"[{self.split}] Tokenization complete, adding to buffer...")
 
                 # Add all tokens to buffer
                 for tokens in token_lists:
                     self.token_buffer.extend(tokens)
+                logger.debug(f"[{self.split}] Buffer now has {len(self.token_buffer)} tokens")
 
             # Extract needed tokens from buffer
             tokens = []
@@ -234,7 +241,11 @@ class DataLoader:
             targets = targets.reshape(self.batch_size, self.sequence_length)
 
             # Evaluate arrays immediately to prevent lazy graph buildup
+            logger.debug(f"[{self.split}] Evaluating batch {batch_count}...")
             mx.eval(inputs, targets)
+
+            batch_count += 1
+            logger.debug(f"[{self.split}] Yielding batch {batch_count}")
 
             yield inputs, targets
 
