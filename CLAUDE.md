@@ -64,7 +64,30 @@ python -m scripts.base_train --depth=20 --device_batch_size=2
 ```bash
 # CLI chat interface
 python -m scripts.chat_cli --checkpoint ~/.cache/mlxchat/base_checkpoints/d12/model_latest.npz
+
+# Chat with quantized model (4-8x smaller)
+python -m scripts.chat_cli --checkpoint ~/.cache/mlxchat/base_checkpoints/d12/model_latest_q4.npz
 ```
+
+### Memory Optimization
+```bash
+# Train with low memory (10-15 GB for d12)
+python -m scripts.base_train --depth=12 --streaming --low-memory
+
+# Train with ultra-low memory (6-10 GB for d12)
+python -m scripts.base_train --depth=12 --device-batch-size=1 --total-batch-size=65536 --streaming --max-cached-shards=3
+
+# Monitor memory usage
+python -m scripts.monitor_memory
+
+# Quantize checkpoint (4-bit)
+python -m scripts.quantize_checkpoint --checkpoint ~/.cache/mlxchat/base_checkpoints/d12/model_latest.npz --bits 4
+
+# Quantize checkpoint (8-bit)
+python -m scripts.quantize_checkpoint --checkpoint ~/.cache/mlxchat/base_checkpoints/d12/model_latest.npz --bits 8
+```
+
+**Memory Guide:** See `MEMORY.md` for complete optimization strategies.
 
 ### Testing
 ```bash
@@ -202,31 +225,35 @@ Handle tall vs wide matrices by transposing before iteration.
 
 ## Project Status
 
-**Complete** - Full training-to-inference pipeline working!
+**Complete** - Full training-to-inference pipeline with memory optimization!
 
-**Completed:**
-- ✅ Phase 1.1: GPT Model (mlxchat/gpt.py, 14 tests passing)
-- ✅ Phase 1.2: Muon Optimizer (mlxchat/muon.py, 11 tests passing)
-- ✅ Phase 2.1: Tokenizer (mlxchat/tokenizer.py, 12 tests passing)
-- ✅ Phase 2.2: Dataloader with Streaming (mlxchat/dataloader.py + dataset.py, 11 tests passing)
-- ✅ Phase 2.3: Training Script (scripts/base_train.py)
-  - Gradient accumulation across micro-batches ✅
-  - Multi-optimizer coordination (Adam + Muon) ✅
-  - Gradient clipping implementation ✅
-  - Validation evaluation ✅
-  - ETA tracking with accurate timing ✅
-  - Automatic checkpoint resumption ✅
-- ✅ Phase 2.4: Checkpoint Manager (mlxchat/checkpoint_manager.py, 4 tests passing)
-- ✅ Phase 3: Inference Engine & Chat CLI
-  - KV cache for fast autoregressive generation ✅
-  - Temperature and top-k sampling ✅
-  - Streaming token generation ✅
-  - CLI chat interface (scripts/chat_cli.py) ✅
+**Completed Features:**
+- ✅ Phase 1: Core Model & Optimizer (GPT model, Muon optimizer, 25 tests passing)
+- ✅ Phase 2: Training Infrastructure
+  - Tokenizer (mlxchat/tokenizer.py, 12 tests)
+  - Dataloader with streaming support (mlxchat/dataloader.py + dataset.py, 11 tests)
+  - Training script with gradient accumulation, multi-optimizer, validation (scripts/base_train.py)
+  - Checkpoint manager with automatic resumption (mlxchat/checkpoint_manager.py, 4 tests)
+  - Low-memory training mode (10-15 GB or 6-10 GB ultra-low)
+  - Memory profiling and monitoring tools
+- ✅ Phase 3: Inference & Optimization
+  - Inference engine with KV cache (mlxchat/engine.py)
+  - CLI chat interface (scripts/chat_cli.py)
+  - Model quantization (4-bit/8-bit, mlxchat/quantization.py)
+  - Memory monitoring script (scripts/monitor_memory.py)
 
-**Future Work:**
-- Phase 4: Web UI (FastAPI chat server with browser interface)
+**Test Coverage:** 52 tests passing
+
+**Documentation:**
+- `README.md` - User guide with quick start and common workflows
+- `CLAUDE.md` - Developer guide (this file)
+- `MEMORY.md` - Complete memory optimization guide
+
+**Future Work (Optional):**
+- Web UI (FastAPI chat server with browser interface)
 - Fine-tuning scripts (SFT, RL)
-- Additional evaluation tasks
+- Evaluation tasks (ARC, GSM8K, MMLU, HumanEval)
+- LoRA fine-tuning, GGUF export, Gradio UI
 
 ## Implementation Guidelines
 

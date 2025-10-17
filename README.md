@@ -195,11 +195,51 @@ Recommended for M3 Pro 36GB:
 
 **Features**:
 - Streaming data mode (train on 300GB dataset with only 3-8GB storage)
+- Low-memory training mode (10-15 GB for d12, 6-10 GB ultra-low mode)
 - Efficient training (~7K tok/sec on M3 Pro)
 - Fast inference with KV cache
+- Model quantization (4-bit/8-bit for 4-8x memory reduction)
 - Automatic checkpoint save/load
 - Multi-turn chat interface
+- Memory monitoring and profiling tools
 - Pre-commit hooks and code formatting
+
+## Future Work (Optional)
+
+Core functionality is complete! These are optional enhancements:
+
+### Web UI
+- FastAPI server with `/chat/completions` endpoint
+- Browser-based chat interface
+- Server-Sent Events for streaming
+
+### Evaluation Tasks
+- Base evaluation (validation loss, perplexity)
+- ARC-Easy / ARC-Challenge
+- GSM8K (math problems)
+- HumanEval (code generation)
+- MMLU (multiple choice)
+
+### Fine-tuning
+- Mid-training for conversation format
+- Supervised fine-tuning (SFT)
+- Reinforcement learning with GRPO
+
+### Stretch Goals
+- LoRA fine-tuning support
+- Model export to GGUF format
+- Gradio UI alternative
+- Gradient checkpointing for larger models
+
+## Memory Optimization
+
+For detailed memory optimization strategies, see [MEMORY.md](MEMORY.md).
+
+**Quick reference:**
+- 16-32 GB RAM: `make train-low-memory` (10-15 GB usage)
+- 8-16 GB RAM: `make train-ultra-low` (6-10 GB usage)
+- Monitor memory: `make monitor-memory`
+- Quantize models: `make quantize` (4-8x reduction)
 
 ## Data Management for Limited Storage
 
